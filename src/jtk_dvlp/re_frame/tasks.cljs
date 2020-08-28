@@ -46,8 +46,8 @@
 
             effect'
             (->> on-completion-keys
-                 (map #(get effect % []))
-                 (map #(conj % [::unregister task-id]))
+                 (map #(->> (get effect %)
+                            (vector ::unregister-and-dispatch-original task-id)))
                  (zipmap on-completion-keys)
                  (merge effect))
 
@@ -73,6 +73,11 @@
 (rf/reg-event-db ::unregister
   (fn [db [_ id-or-task]]
     (unregister db id-or-task)))
+
+(rf/reg-event-fx ::unregister-and-dispatch-original
+  (fn [{:keys [db]} [_ id-or-task original-event-vec & original-event-args]]
+    {:db (unregister db id-or-task)
+     :dispatch (into original-event-vec original-event-args)}))
 
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
