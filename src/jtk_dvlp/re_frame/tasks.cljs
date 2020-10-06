@@ -94,5 +94,7 @@
 
 (rf/reg-sub ::running?
   :<- [::tasks]
-  (fn [tasks]
-    (-> tasks (seq) (some?))))
+  (fn [tasks [_ pred]]
+    (if pred
+      (->> tasks (filter pred) (some?))
+      (->> tasks (seq) (some?)))))
