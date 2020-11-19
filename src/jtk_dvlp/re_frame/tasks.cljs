@@ -35,14 +35,14 @@
 
     :after
     (fn [context]
-      (let [task-id
-            (random-uuid)
-
-            effect
+      (let [effect
             (rf/get-effect context effect-key)
 
+            task-id
+            (::id effect (random-uuid))
+
             task
-            (assoc effect ::id task-id)
+            (assoc effect ::id task-id, ::effect effect-key)
 
             effect'
             (->> on-completion-keys
@@ -94,7 +94,7 @@
 
 (rf/reg-sub ::running?
   :<- [::tasks]
-  (fn [tasks [_ pred]]
-    (if pred
-      (->> tasks (filter pred) (some?))
+  (fn [tasks [_ ids]]
+    (if ids
+      (->> tasks (keys) (filter ids) (seq) (some?))
       (->> tasks (seq) (some?)))))
