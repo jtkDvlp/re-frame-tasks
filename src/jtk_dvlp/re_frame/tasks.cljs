@@ -76,8 +76,9 @@
 
 (rf/reg-event-fx ::unregister-and-dispatch-original
   (fn [{:keys [db]} [_ id-or-task original-event-vec & original-event-args]]
-    {:db (unregister db id-or-task)
-     :dispatch (into original-event-vec original-event-args)}))
+    (cond-> {:db (unregister db id-or-task)}
+      original-event-vec
+      (assoc :dispatch (into original-event-vec original-event-args)))))
 
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
