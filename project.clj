@@ -1,4 +1,4 @@
-(defproject jtk-dvlp/re-frame-tasks "1.0.1"
+(defproject jtk-dvlp/re-frame-tasks "2.0.0-SNAPSHOT"
   :description
   "A re-frame interceptor and helpers to register / unregister (background-)tasks"
 
@@ -22,17 +22,18 @@
   ^{:protect false}
   [:target-path]
 
+  :dependencies
+  [[org.clojure/clojure "1.10.0"]
+   [org.clojure/clojurescript "1.10.773"]
+   [jtk-dvlp/core.async-helpers "3.2.0-SNAPSHOT"]
+   [re-frame "1.1.2"]]
+
   :profiles
-  {:provided
+  {:dev
    {:dependencies
-    [[org.clojure/clojure "1.10.0"]
-     [org.clojure/clojurescript "1.10.773"]
-
-     [re-frame "0.12.0"]]}
-
-   :dev
-   {:dependencies
-    [[com.bhauman/figwheel-main "0.2.7"]]
+    [[com.bhauman/figwheel-main "0.2.7"]
+     [org.clojure/core.async "1.3.610"]
+     [net.clojars.jtkdvlp/re-frame-async-coeffects "2.0.0"]]
 
     :source-paths
     ["dev"]}
@@ -46,6 +47,9 @@
      [cider.piggieback/wrap-cljs-repl]
 
      :init-ns
-     user}}}
+     user
+
+     :init
+     (fig-init)}}}
 
   ,,,)
