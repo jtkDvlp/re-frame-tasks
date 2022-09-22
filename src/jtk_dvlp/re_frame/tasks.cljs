@@ -46,7 +46,7 @@
   [name-or-task]
   (if (map? name-or-task)
     name-or-task
-    {::name name-or-task}))
+    {:name name-or-task}))
 
 (defn- normalize-effect-key
   [effect-key]
@@ -143,12 +143,14 @@
         {:keys [dispatch-id ?error]}
         acoeffects
 
-        task
+        {task-id ::id :as task}
         (assoc task ::id dispatch-id)]
 
     (if (fx-handler-run? context)
       (or
-       (unregister-by-fxs context task fxs)
+       (-> context
+           (interceptor/assoc-effect :db (update-in db [::db :tasks task-id] merge task))
+           (unregister-by-fxs task fxs))
        (interceptor/assoc-effect context :db (unregister db task)))
       (-> context
           (interceptor/assoc-effect :db (register db task))
@@ -180,10 +182,12 @@
 
 (defn as-task
   "Creates an interceptor to mark an event as task.
-   Give it a name of the task or map with at least a `::name` key or nil / nothing to use the event name.
+   Give it a name of the task or map with at least a `:name` key or nil / nothing to use the event name.
    Tasks can be used via subscriptions `::tasks` and `::running?`.
 
    Given vector `fxs` will be used to identify effects to monitor for the task. Can be the keyword of the effect or an vector of effect keyword or effect path (to handle special :fx effect) and completion keywords to hang in. Completion keys defaults to `:on-complete`, `:on-success`, `on-failure` and `on-error`. See also `set-global-default-completion-keys!` and `merge-global-default-completion-keys!`.
+
+   Within your event handler use `::task` as effect to modify your task data.
 
    Works in combination with https://github.com/jtkDvlp/re-frame-async-coeffects. For async coeffects there is no need to define what to monitor. Coeffects will be monitored automatically."
   ([]
@@ -204,7 +208,12 @@
               (-> name-or-task
                   (or (task-by-original-event context))
                   (normalize-task)
-                  (assoc ::event (get-original-event context)))]
+                  (assoc :event (get-original-event context))
+                  (merge (interceptor/get-effect context ::task)))
+
+              ;; NOTE: ::task fx is only to carry task data
+              context
+              (update context :effects dissoc ::task)]
 
           (cond
             (includes-acofxs? context)
@@ -234,11 +243,13 @@
     (when original-event-vec
       (rf/dispatch (into original-event-vec original-event-args)))
 
-    (if (= 1 (get @!task<->fxs-counters id))
-      (do
-        (swap! !task<->fxs-counters dissoc id)
-        (rf/dispatch [::unregister task]))
-      (swap! !task<->fxs-counters update id dec))))
+    (if-let [fxs-rest-count (get @!task<->fxs-counters id)]
+      (if (= 1 fxs-rest-count)
+        (do
+          (swap! !task<->fxs-counters dissoc id)
+          (rf/dispatch [::unregister task]))
+        (swap! !task<->fxs-counters update id dec))
+      (rf/dispatch [::unregister task]))))
 
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -251,11 +262,13 @@
 (rf/reg-sub ::tasks
   :<- [::db]
   (fn [{:keys [tasks]}]
-    tasks))
+    (vals tasks)))
 
 (rf/reg-sub ::running?
   :<- [::tasks]
   (fn [tasks [_ name]]
-    (if name
-      (->> tasks (vals) (filter #(= (::name %) name)) (first) (some?))
-      (-> tasks (first) (some?)))))
+    (-> tasks
+        (cond->>
+            name (some #(= (:name %) name)))
+        (seq)
+        (some?))))

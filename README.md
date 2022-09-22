@@ -15,7 +15,7 @@ Interceptor and helpers to register and unregister (background-)tasks (FXs) in y
 * events to register / unregister tasks yourself
 * helpers to register / unregister tasks into db yourself
 
-Alsoe works for async coeffects injections, see https://github.com/jtkDvlp/re-frame-async-coeffects.
+Also works for async coeffects injections, see https://github.com/jtkDvlp/re-frame-async-coeffects.
 
 ## Getting started
 
@@ -36,50 +36,60 @@ See api docs [![cljdoc badge](https://cljdoc.org/badge/jtk-dvlp/re-frame-tasks)]
 
 
 (rf/reg-event-fx :some-event
-  ;; give it a name and fx keys to identify the task and effects emitted by this event.
-  [(tasks/as-task :some-task [:some-fx :some-other-fx])
-   ;; futher more you can give it the handler keys to hang in finishing the tasks effects
-   ;; (tasks/as-task :some-task
-   ;;                [[:some-fx :on-done :on-done-with-errors]
-   ;;                 [:some-other-fx :on-yuhu :on-oh-no]])
-   ;; last but not least supports the special effect :fx giving an path for the fx to monitor.
-   ;; (tasks/as-task :some-task [[[:fx 1] :on-done ,,,] ; you need to give it the index of the effect within :fx vector to monitor.
-   ;;                            ,,,])
-   ]
+  ;; give it the fx to identify the task emitted by this event
+  [(tasks/as-task :some-task
+     [:some-fx
+      [:some-other-fx :on-done :on-done-with-errors]
+      [[:fx 1] :on-done]])
+   (acoeffects/inject-acofx :some-acofx)]
   (fn [_ _]
-    {:some-fx
-     {:label "Do some fx"
+    {;; modify your task via fx
+     ::tasks/task
+     {:this-is-some-task :data}
+
+     :some-fx
+     {,,,
+      ;; you can give the tasks an id (default: uuid), see subscription `:jtk-dvlp.re-frame.tasks/running?` for usage.
       :on-success [:some-event-success]
       :on-error [:some-event-error]
-      :on-done [:some-event-completed]}
+      ;; calling this by `:some-fx` will unregister the task via `tasks/as-task`
+      :on-complete [:some-event-completed]}
 
      :some-other-fx
      {,,,
-      :label "Do some other fx"
+      ;; calling this by some-fx will unregister the task via `tasks/as-task`
       ;; `:on-done-with-error` will also untergister the task when called by `:some-other-fx`
-      :on-done [:some-other-event-completed]}}))
+      :on-done [:some-other-event-completed]}
+
+     :fx
+     [[:some-fx
+       {:on-success [:some-event-success]
+        :on-error [:some-event-error]
+        :on-complete [:some-event-completed]}]
+
+      ;; same with :fx effect referenzed via path [:fx 1]
+      [:some-other-fx
+       {:on-done [:some-other-event-completed]}]]}))
 
 (defn app-view
   []
   (let [block-ui?
         (rf/subscribe [:jtk-dvlp.re-frame.tasks/running?])
 
-        ;; for sugar you can give it also a task name to filter the running tasks.
-        some-important-stuff-running?
-        (rf/subscribe [:jtk-dvlp.re-frame.tasks/running? :some-important-stuff])
-
         tasks
         (rf/subscribe [:jtk-dvlp.re-frame.tasks/tasks])]
 
     (fn []
       [:<>
-       [:div "some app content"]
+       [:button {:on-click #(rf/dispatch [:some-event])}
+        "exec some event"]
 
-       [:ul "task list"
-        ;; each task is a map with the original event vector plus name and id.
-        (for [{:keys [:jtk-dvlp.re-frame.tasks/id] :as task} @tasks]
+       [:ul "task list " (count @tasks)
+        ;; each task is the original fx map plus an `::tasks/id`, the original `event`
+        ;; and the data you carry via `::task` fx from within the event
+        (for [{:keys [::tasks/id] :as task} @tasks]
           ^{:key id}
-          [:li task])]
+          [:li [:pre (with-out-str (cljs.pprint/pprint task))]])]
 
        (when @block-ui?
          [:div "this div blocks the UI if there are running tasks"])])))

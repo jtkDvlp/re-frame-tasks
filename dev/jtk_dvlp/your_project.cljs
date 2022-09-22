@@ -65,7 +65,11 @@
    (acoeffects/inject-acofx :some-acofx)]
   (fn [_ _]
     (println "handler")
-    {:some-fx
+    {;; modify your task via fx
+     ::tasks/task
+     {:this-is-some-task :data}
+
+     :some-fx
      {,,,
       ;; you can give the tasks an id (default: uuid), see subscription `:jtk-dvlp.re-frame.tasks/running?` for usage.
       :on-success [:some-event-success]
@@ -162,8 +166,9 @@
         "exec some other bad event"]
 
        [:ul "task list " (count @tasks)
-        ;; each task is the original fx map plus an `::tasks/id` and `::tasks/effect`
-        (for [{:keys [::tasks/id] :as task} (vals @tasks)]
+        ;; each task is the original fx map plus an `::tasks/id`, the original `event`
+        ;; and the data you carry via `::task` fx from within the event
+        (for [{:keys [::tasks/id] :as task} @tasks]
           ^{:key id}
           [:li [:pre (with-out-str (cljs.pprint/pprint task))]])]
 
