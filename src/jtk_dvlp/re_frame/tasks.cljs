@@ -16,7 +16,7 @@
   (assoc-in db [::db :tasks id] task))
 
 (defn unregister
-  "Unregister task within app state. Also see event `::unregister`.
+  "Unregister task within app state. Also see event `::unregister` and `::unregister-and-dispatch-original`.
    Tasks can be used via subscriptions `::tasks` and `::running?`."
   [db {:keys [::id]}]
   (update-in db [::db :tasks] dissoc id))
