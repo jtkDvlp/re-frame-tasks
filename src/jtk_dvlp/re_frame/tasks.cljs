@@ -18,8 +18,9 @@
 (defn unregister
   "Unregister task within app state. Also see event `::unregister` and `::unregister-and-dispatch-original`.
    Tasks can be used via subscriptions `::tasks` and `::running?`."
-  [db {:keys [::id]}]
-  (update-in db [::db :tasks] dissoc id))
+  [db id-or-task]
+  (let [id (if (map? id-or-task) (::id id-or-task) id-or-task)]
+    (update-in db [::db :tasks] dissoc id)))
 
 (def ^:private !global-default-completion-keys
   (atom #{:on-complete :on-success :on-failure :on-error}))
@@ -224,19 +225,6 @@
 
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Effects
-
-(rf/reg-fx ::register
-  (fn [name-or-task]
-    (let [task (normalize-task name-or-task)]
-      (rf/dispatch-sync [::register task]))))
-
-(rf/reg-fx ::unregister
-  (fn [task]
-    (rf/dispatch [::unregister task])))
-
-
-;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Events
 
 (rf/reg-event-db ::register
@@ -244,8 +232,8 @@
     (register db task)))
 
 (rf/reg-event-db ::unregister
-  (fn [db [_ task]]
-    (unregister db task)))
+  (fn [db [_ id-or-task]]
+    (unregister db id-or-task)))
 
 (rf/reg-event-fx ::unregister-and-dispatch-original
   (fn [_ [_ task original-event-vec & original-event-args]]
