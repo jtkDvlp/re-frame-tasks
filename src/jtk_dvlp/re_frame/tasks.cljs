@@ -224,6 +224,19 @@
 
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Effects
+
+(rf/reg-fx ::register
+  (fn [name-or-task]
+    (let [task (normalize-task name-or-task)]
+      (rf/dispatch-sync [::register task]))))
+
+(rf/reg-fx ::unregister
+  (fn [task]
+    (rf/dispatch [::unregister task])))
+
+
+;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Events
 
 (rf/reg-event-db ::register
