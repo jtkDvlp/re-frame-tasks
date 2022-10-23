@@ -22,16 +22,44 @@
   (let [id (if (map? id-or-task) (::id id-or-task) id-or-task)]
     (update-in db [::db :tasks] dissoc id)))
 
-(def ^:private !global-default-completion-keys
-  (atom #{:on-complete :on-success :on-failure :on-error}))
+(def ^:private !completion-keys-per-effect
+  (atom {}))
 
-(def set-global-default-completion-keys!
-  "Sets global completion keys."
-  (partial reset! !global-default-completion-keys))
+(def set-completion-keys-per-effect!
+  "Sets completion keys per effect."
+  (partial reset! !completion-keys-per-effect))
 
-(def merge-global-default-completion-keys!
-  "Merge global completion keys."
-  (partial swap! !global-default-completion-keys merge))
+(def merge-completion-keys-per-effect!
+  "Merge completion keys per effect."
+  (partial swap! !completion-keys-per-effect merge))
+
+(defn- get-completion-keys-for-effect
+  [fx]
+  (if-let [completion-keys (get @!completion-keys-per-effect fx)]
+    completion-keys
+    (throw (ex-info (str "No completion keys set for effect '" fx "'") {:code ::no-completion-keys, :effect fx}))))
+
+(defn assoc-original-event
+  "Assoc `original-event` to task if `event` is `::unregister-and-dispatch-original` and its original is nil."
+  [event original-event]
+  (let [[event-name _ maybe-original-event]
+        event]
+
+    (cond-> event
+      (and
+       (= event-name ::unregister-and-dispatch-original)
+       (nil? maybe-original-event))
+      (assoc 2 original-event))))
+
+(defn update-original-event
+  "Update original event of task if `event` is `::unregister-and-dispatch-original`."
+  [event f & args]
+  (let [[event-name _ maybe-original-event]
+        event]
+
+    (if (= event-name ::unregister-and-dispatch-original)
+      (apply update event 2 f args)
+      event)))
 
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -49,31 +77,16 @@
     name-or-task
     {:name name-or-task}))
 
-(defn- normalize-effect-key
-  [effect-key]
-  (let [[effect :as effect-key]
-        (cond-> effect-key
-          (not (vector? effect-key))
+(defn- normalize-fx
+  [effect]
+  (let [[effect-key :as effect]
+        (cond-> effect
+          (not (vector? effect))
           (vector))]
 
-    (cond-> effect-key
-      (= effect :fx)
+    (cond-> effect
+      (= effect-key :fx)
       (conj 1))))
-
-(defn- normalize-fx
-  [fx]
-  (cond
-    (keyword? fx)
-    {:effect-key (normalize-effect-key fx)
-     :completion-keys @!global-default-completion-keys}
-
-    (vector? fx)
-    {:effect-key (normalize-effect-key (first fx))
-     :completion-keys (some-> (next fx) (into #{}))}
-
-    :else
-    {:effect-key (normalize-effect-key (:effect-key fx))
-     :completion-keys (:completion-keys fx)}))
 
 (defonce ^:private !task<->fxs-counters
   (atom {}))
@@ -86,12 +99,8 @@
    effect
    completion-keys))
 
-(defn- unregister-for-fx
-  [effects completion-keys task]
-  (mapv
-   (fn [[effect-key effect-value]]
-     [effect-key (unregister-by-fx effect-value completion-keys task)])
-   effects))
+(def ^:private fx-special?
+  (comp (partial = :fx) first))
 
 (defn- unregister-by-fxs
   [{:keys [effects] :as context}
@@ -100,22 +109,31 @@
 
   (loop [n 0
 
-         [{:keys [effect-key completion-keys]} & rest-fxs]
+         [effect-path & rest-fxs]
          fxs
 
          {:key [effects] :as context}
          context]
 
-    (let [effect (get-in effects effect-key)]
-      (if effect-key
-        (->> task
-             (unregister-by-fx effect completion-keys)
-             (assoc-in context (cons :effects effect-key))
-             (recur (inc n) rest-fxs))
+    (if effect-path
+      (let [[effect-key effect-data]
+            (if (fx-special? effect-path)
+              ;; NOTE: butlast damit ich direkt den map-entry nach Vorlage des :fx in der Hand habe,
+              ;;       siehe die Vorbereitung in `normalize-fx`.
+              (get-in effects (butlast effect-path))
+              (find effects (first effect-path)))
 
-        (when (> n 0)
-          (swap! !task<->fxs-counters assoc id n)
-          context)))))
+            completion-keys
+            (get-completion-keys-for-effect effect-key)]
+
+        (->> task
+             (unregister-by-fx effect-data completion-keys)
+             (assoc-in context (cons :effects effect-path))
+             (recur (inc n) rest-fxs)))
+
+      (when (> n 0)
+        (swap! !task<->fxs-counters assoc id n)
+        context))))
 
 (defn- unregister-by-failed-acofx
   [context task ?acofx]
@@ -186,7 +204,7 @@
    Give it a name of the task or map with at least a `:name` key or nil / nothing to use the event name.
    Tasks can be used via subscriptions `::tasks` and `::running?`.
 
-   Given vector `fxs` will be used to identify effects to monitor for the task. Can be the keyword of the effect or an vector of effect keyword or effect path (to handle special :fx effect) and completion keywords to hang in. Completion keys defaults to `:on-complete`, `:on-success`, `on-failure` and `on-error`. See also `set-global-default-completion-keys!` and `merge-global-default-completion-keys!`.
+   Given vector `fxs` will be used to identify effects to monitor for the task. Can be the keyword of the effect or an vector of effects path (to handle special :fx effect). Completion keys must be set by `set-completion-keys-per-effect!` or `merge-completion-keys-per-effect!` for the effects.
 
    Within your event handler use `::task` as effect to modify your task data.
 
@@ -198,30 +216,32 @@
    (as-task name-or-task nil))
 
   ([name-or-task fxs]
-   (let [fxs (map normalize-fx fxs)]
-     (rf/->interceptor
-      :id
-      :as-task
+   (rf/->interceptor
+    :id
+    :as-task
 
-      :after
-      (fn [context]
-        (let [task
-              (-> name-or-task
-                  (or (task-by-original-event context))
-                  (normalize-task)
-                  (assoc :event (get-original-event context))
-                  (merge (interceptor/get-effect context ::task)))
+    :after
+    (fn [context]
+      (let [fxs
+            (map normalize-fx fxs)
 
-              ;; NOTE: ::task fx is only to carry task data
-              context
-              (update context :effects dissoc ::task)]
+            task
+            (-> name-or-task
+                (or (task-by-original-event context))
+                (normalize-task)
+                (assoc :event (get-original-event context))
+                (merge (interceptor/get-effect context ::task)))
 
-          (cond
-            (includes-acofxs? context)
-            (handle-acofx-variant context task fxs)
+            ;; NOTE: ::task fx is only to carry task data
+            context
+            (update context :effects dissoc ::task)]
 
-            :else
-            (handle-straight-variant context task fxs))))))))
+        (cond
+          (includes-acofxs? context)
+          (handle-acofx-variant context task fxs)
+
+          :else
+          (handle-straight-variant context task fxs)))))))
 
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

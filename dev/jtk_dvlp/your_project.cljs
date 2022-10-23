@@ -18,6 +18,10 @@
     (<! (timeout 5000))
     :result))
 
+(tasks/set-completion-keys-per-effect!
+ {:some-fx #{:on-complete}
+  :some-other-fx #{:on-done :on-done-with-errors}})
+
 (rf/reg-fx :some-fx
   (fn [{:keys [on-complete] :as x}]
     (println ":some-fx" x)
@@ -57,11 +61,9 @@
         result))))
 
 (rf/reg-event-fx :some-event
-  ;; give it the fx to identify the task emitted by this event
-  [(tasks/as-task :some-task
-     [:some-fx
-      [:some-other-fx :on-done :on-done-with-errors]
-      [[:fx 1] :on-done]])
+  ;; give it a name and the fxs to monitor
+  [(tasks/as-task :some-task [:some-fx [:fx 1]])
+   ;; supports async coeffects
    (acoeffects/inject-acofx :some-acofx)]
   (fn [_ _]
     (println "handler")
@@ -70,75 +72,58 @@
      {:this-is-some-task :data}
 
      :some-fx
-     {,,,
-      ;; you can give the tasks an id (default: uuid), see subscription `:jtk-dvlp.re-frame.tasks/running?` for usage.
-      :on-success [:some-event-success]
+     {:on-success [:some-event-success]
       :on-error [:some-event-error]
-      ;; calling this by `:some-fx` will unregister the task via `tasks/as-task`
-      :on-complete [:some-event-completed]}
+      :on-complete [:some-event-completed]
+      ,,,}
 
      :some-other-fx
-     {,,,
-      ;; calling this by some-fx will unregister the task via `tasks/as-task`
-      ;; `:on-done-with-error` will also untergister the task when called by `:some-other-fx`
-      :on-done [:some-other-event-completed]}
+     {:on-done [:some-other-event-completed]
+      ,,,}
 
      :fx
      [[:some-fx
        {:on-success [:some-event-success]
         :on-error [:some-event-error]
-        :on-complete [:some-event-completed]}]
+        :on-complete [:some-event-completed]
+        ,,,}]
 
-      ;; same with :fx effect referenzed via path [:fx 1]
+      ;; monitored fx referenzed via path [:fx 1]
       [:some-other-fx
        {:on-done [:some-other-event-completed]}]]}))
 
+;; error case, error within async coeffect
 (rf/reg-event-fx :some-bad-event
-  ;; give it the fx to identify the task emitted by this event
-  [(tasks/as-task :some-task
-     [:some-fx
-      {:effect-key [:some-other-fx]
-       :completion-keys #{:on-done :on-done-with-errors}}])
+  [(tasks/as-task :some-task [:some-fx :some-other-fx])
    (acoeffects/inject-acofx [:some-acofx :bad-data])]
   (fn [_ _]
     (println "handler")
     {:some-fx
-     {,,,
-      ;; you can give the tasks an id (default: uuid), see subscription `:jtk-dvlp.re-frame.tasks/running?` for usage.
-      :on-success [:some-event-success]
+     {:on-success [:some-event-success]
       :on-error [:some-event-error]
-      ;; calling this by `:some-fx` will unregister the task via `tasks/as-task`
-      :on-complete [:some-event-completed]}
+      :on-complete [:some-event-completed]
+      ,,,}
 
      :some-other-fx
-     {,,,
-      ;; calling this by some-fx will unregister the task via `tasks/as-task`
-      ;; `:on-done-with-error` will also untergister the task when called by `:some-other-fx`
-      :on-done [:some-other-event-completed]}}))
+     {:on-done [:some-other-event-completed]
+      ,,,}}))
 
+;; error case, error within effect
 (rf/reg-event-fx :some-other-bad-event
-  ;; give it the fx to identify the task emitted by this event
-  [(tasks/as-task :some-task
-     [:some-fx
-      {:effect-key [:some-other-fx]
-       :completion-keys #{:on-done :on-done-with-errors}}])
+  [(tasks/as-task :some-task [:some-fx :some-other-fx])
    (acoeffects/inject-acofx :some-acofx)]
   (fn [_ _]
     (println "handler")
     {:some-fx
-     {,,,
-      ;; you can give the tasks an id (default: uuid), see subscription `:jtk-dvlp.re-frame.tasks/running?` for usage.
-      :on-success [:some-event-success]
+     {:on-success [:some-event-success]
       :on-error [:some-event-error]
-      ;; calling this by `:some-fx` will unregister the task via `tasks/as-task`
-      :on-complete [:some-event-completed]}
+      :on-complete [:some-event-completed]
+      ,,,}
 
      :some-other-fx
-     {,,,
-      :bad-data true
-      ;; calling this by some-fx will unregister the task via `tasks/as-task`
-      ;; `:on-done-with-error` will also untergister the task when called by `:some-other-fx`
-      :on-done [:some-other-event-completed]}}))
+     {:bad-data true
+      :on-done [:some-other-event-completed]
+      ,,,}}))
 
 (rf/reg-event-db :some-event-completed
   (fn [db _]
@@ -157,6 +142,8 @@
         (rf/subscribe [:jtk-dvlp.re-frame.tasks/tasks])]
 
     (fn []
+      [:p "open developer tools console for more infos."]
+
       [:<>
        [:button {:on-click #(rf/dispatch [:some-event])}
         "exec some event"]
@@ -166,8 +153,8 @@
         "exec some other bad event"]
 
        [:ul "task list " (count @tasks)
-        ;; each task is the original fx map plus an `::tasks/id`, the original `event`
-        ;; and the data you carry via `::task` fx from within the event
+        ;; task is a map of `::tasks/id`, `:name`, `:event and the
+        ;; data you carry via `::task` fx from within the event
         (for [{:keys [::tasks/id] :as task} @tasks]
           ^{:key id}
           [:li [:pre (with-out-str (cljs.pprint/pprint task))]])]
