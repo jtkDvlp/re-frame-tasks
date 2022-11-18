@@ -31,15 +31,49 @@ See api docs [![cljdoc badge](https://cljdoc.org/badge/jtk-dvlp/re-frame-tasks)]
 ```clojure
 (ns jtk-dvlp.your-project
   (:require
+   [cljs.pprint]
+   [cljs.core.async :refer [timeout]]
+   [jtk-dvlp.async :refer [go <!] :as a]
+
    [re-frame.core :as rf]
    [jtk-dvlp.re-frame.tasks :as tasks]))
 
+(defn- some-async-stuff
+  []
+  (go
+    (<! (timeout 5000))
+    :result))
+
+(tasks/set-completion-keys-per-effect!
+ {:some-fx #{:on-complete}
+  #{:on-done :on-done-with-errors}})
+
+(rf/reg-fx :some-fx
+  (fn [{:keys [on-complete] :as x}]
+    (println ":some-fx" x)
+    (go
+      (let [result (<! (some-async-stuff))]
+        (println ":some-fx finished")
+        (rf/dispatch (conj on-complete result))))))
+
+(rf/reg-fx :some-other-fx
+  (fn [{:keys [bad-data on-done on-done-with-errors] :as x}]
+    (println ":some-other-fx" x)
+    (go
+      (try
+        (when bad-data
+          (throw (ex-info "bad data" {:code :bad-data})))
+        (let [result (<! (some-async-stuff))]
+          (rf/dispatch (conj on-done result)))
+        (catch :default e
+          (println ":some-other-fx error" e)
+          (rf/dispatch (conj on-done-with-errors e)))
+        (finally
+          (println ":some-other-fx finished"))))))
 
 (rf/reg-event-fx :some-event
   ;; give it a name and the fxs to monitor
-  [(tasks/as-task :some-task [:some-fx [:fx 1]])
-   ;; supports async coeffects
-   (acoeffects/inject-acofx :some-acofx)]
+  [(tasks/as-task :some-task [:some-fx [:fx 1]])]
   (fn [_ _]
     (println "handler")
     {;; modify your task via fx
@@ -66,6 +100,8 @@ See api docs [![cljdoc badge](https://cljdoc.org/badge/jtk-dvlp/re-frame-tasks)]
       ;; monitored fx referenzed via path [:fx 1]
       [:some-other-fx
        {:on-done [:some-other-event-completed]}]]}))
+
+,,,
 
 (defn app-view
   []
