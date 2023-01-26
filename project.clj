@@ -1,4 +1,4 @@
-(defproject jtk-dvlp/re-frame-tasks "2.0.0-SNAPSHOT"
+(defproject jtk-dvlp/re-frame-tasks "2.0.0"
   :description
   "A re-frame interceptor and helpers to register / unregister (background-)tasks"
 
@@ -25,7 +25,7 @@
   :dependencies
   [[org.clojure/clojure "1.10.0"]
    [org.clojure/clojurescript "1.10.773"]
-   [jtk-dvlp/core.async-helpers "3.2.0-SNAPSHOT"]
+   [jtk-dvlp/core.async-helpers "3.2.0"]
    [re-frame "1.1.2"]]
 
   :profiles
