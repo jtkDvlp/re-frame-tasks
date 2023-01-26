@@ -54,7 +54,7 @@
 (defn update-original-event
   "Update original event of task if `event` is `::unregister-and-dispatch-original`."
   [event f & args]
-  (let [[event-name _ maybe-original-event]
+  (let [[event-name _ _maybe-original-event]
         event]
 
     (if (= event-name ::unregister-and-dispatch-original)

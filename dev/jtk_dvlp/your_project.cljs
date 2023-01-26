@@ -88,7 +88,7 @@
         :on-complete [:some-event-completed]
         ,,,}]
 
-      ;; monitored fx referenzed via path [:fx 1]
+      ;; monitored fx referenced via path [:fx 1]
       [:some-other-fx
        {:on-done [:some-other-event-completed]}]]}))
 

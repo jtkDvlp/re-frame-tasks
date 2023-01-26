@@ -29,14 +29,19 @@ Add the following dependency to your `project.clj`:<br>
 See api docs [![cljdoc badge](https://cljdoc.org/badge/jtk-dvlp/re-frame-tasks)](https://cljdoc.org/d/jtk-dvlp/re-frame-tasks/CURRENT)
 
 ```clojure
-(ns jtk-dvlp.your-project
+(ns ^:figwheel-hooks jtk-dvlp.your-project
   (:require
    [cljs.pprint]
    [cljs.core.async :refer [timeout]]
    [jtk-dvlp.async :refer [go <!] :as a]
 
+   [goog.dom :as gdom]
+   [reagent.dom :as rdom]
+
    [re-frame.core :as rf]
+   [jtk-dvlp.re-frame.async-coeffects :as acoeffects]
    [jtk-dvlp.re-frame.tasks :as tasks]))
+
 
 (defn- some-async-stuff
   []
@@ -46,7 +51,7 @@ See api docs [![cljdoc badge](https://cljdoc.org/badge/jtk-dvlp/re-frame-tasks)]
 
 (tasks/set-completion-keys-per-effect!
  {:some-fx #{:on-complete}
-  #{:on-done :on-done-with-errors}})
+  :some-other-fx #{:on-done :on-done-with-errors}})
 
 (rf/reg-fx :some-fx
   (fn [{:keys [on-complete] :as x}]
@@ -71,9 +76,26 @@ See api docs [![cljdoc badge](https://cljdoc.org/badge/jtk-dvlp/re-frame-tasks)]
         (finally
           (println ":some-other-fx finished"))))))
 
+(acoeffects/reg-acofx :some-acofx
+  (fn [cofxs & [bad-data :as args]]
+    (println ":some-acofx")
+    (go
+      (when bad-data
+        (throw (ex-info "bad data" {:code :bad-data})))
+      (let [result
+            (->> args
+                 (apply some-async-stuff)
+                 (<!)
+                 (assoc cofxs :some-acofx))]
+
+        (println ":some-acofx finished")
+        result))))
+
 (rf/reg-event-fx :some-event
   ;; give it a name and the fxs to monitor
-  [(tasks/as-task :some-task [:some-fx [:fx 1]])]
+  [(tasks/as-task :some-task [:some-fx [:fx 1]])
+   ;; supports async coeffects
+   (acoeffects/inject-acofx :some-acofx)]
   (fn [_ _]
     (println "handler")
     {;; modify your task via fx
@@ -97,11 +119,50 @@ See api docs [![cljdoc badge](https://cljdoc.org/badge/jtk-dvlp/re-frame-tasks)]
         :on-complete [:some-event-completed]
         ,,,}]
 
-      ;; monitored fx referenzed via path [:fx 1]
+      ;; monitored fx referenced via path [:fx 1]
       [:some-other-fx
        {:on-done [:some-other-event-completed]}]]}))
 
-,,,
+;; error case, error within async coeffect
+(rf/reg-event-fx :some-bad-event
+  [(tasks/as-task :some-task [:some-fx :some-other-fx])
+   (acoeffects/inject-acofx [:some-acofx :bad-data])]
+  (fn [_ _]
+    (println "handler")
+    {:some-fx
+     {:on-success [:some-event-success]
+      :on-error [:some-event-error]
+      :on-complete [:some-event-completed]
+      ,,,}
+
+     :some-other-fx
+     {:on-done [:some-other-event-completed]
+      ,,,}}))
+
+;; error case, error within effect
+(rf/reg-event-fx :some-other-bad-event
+  [(tasks/as-task :some-task [:some-fx :some-other-fx])
+   (acoeffects/inject-acofx :some-acofx)]
+  (fn [_ _]
+    (println "handler")
+    {:some-fx
+     {:on-success [:some-event-success]
+      :on-error [:some-event-error]
+      :on-complete [:some-event-completed]
+      ,,,}
+
+     :some-other-fx
+     {:bad-data true
+      :on-done [:some-other-event-completed]
+      ,,,}}))
+
+(rf/reg-event-db :some-event-completed
+  (fn [db _]
+    db))
+
+(rf/reg-event-db :some-other-event-completed
+  (fn [db _]
+    db))
 
 (defn app-view
   []
