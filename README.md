@@ -8,7 +8,7 @@ Interceptor and helpers to register and unregister (background-)tasks (FXs) in y
 
 ## Features
 
-* register / unregister tasks / fxs via one line interceptor injection
+* register / unregister tasks / fxs via one line or global interceptor injection
   * support multiple and any fx on-completion keys via registration
 * subscriptions for tasks list and running task boolean
   * running task boolean can be quick filtered by task name

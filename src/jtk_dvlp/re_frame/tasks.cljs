@@ -102,37 +102,39 @@
 (def ^:private fx-special?
   (comp (partial = :fx) first))
 
-(defn- unregister-by-fxs
-  [{:keys [effects] :as context}
-   {:keys [::id] :as task}
-   fxs]
+(defn- get-effect-by-path
+  [{:keys [effects] :as _context} effect-path]
+  (if (fx-special? effect-path)
+    ;; NOTE: butlast damit ich direkt den map-entry nach Vorlage des :fx in der Hand habe,
+    ;;       siehe die Vorbereitung in `normalize-fx`.
+    (get-in effects (butlast effect-path))
+    (find effects (first effect-path))))
 
-  (loop [n 0
+(defn- unregister-by-fxs
+  [context {:keys [::id] :as task} fxs]
+  (loop [applied-fxs-counter
+         0
 
          [effect-path & rest-fxs]
          fxs
 
-         {:key [effects] :as context}
+         context
          context]
 
     (if effect-path
-      (let [[effect-key effect-data]
-            (if (fx-special? effect-path)
-              ;; NOTE: butlast damit ich direkt den map-entry nach Vorlage des :fx in der Hand habe,
-              ;;       siehe die Vorbereitung in `normalize-fx`.
-              (get-in effects (butlast effect-path))
-              (find effects (first effect-path)))
+      (if-let [[effect-key effect-data] (get-effect-by-path context effect-path)]
+        (let [completion-keys
+              (get-completion-keys-for-effect effect-key)]
 
-            completion-keys
-            (get-completion-keys-for-effect effect-key)]
+          (->> task
+               (unregister-by-fx effect-data completion-keys)
+               (assoc-in context (cons :effects effect-path))
+               (recur (inc applied-fxs-counter) rest-fxs)))
 
-        (->> task
-             (unregister-by-fx effect-data completion-keys)
-             (assoc-in context (cons :effects effect-path))
-             (recur (inc n) rest-fxs)))
+        (recur applied-fxs-counter rest-fxs context))
 
-      (when (> n 0)
-        (swap! !task<->fxs-counters assoc id n)
+      (when (> applied-fxs-counter 0)
+        (swap! !task<->fxs-counters assoc id applied-fxs-counter)
         context))))
 
 (defn- unregister-by-failed-acofx
@@ -288,8 +290,9 @@
 (rf/reg-sub ::running?
   :<- [::tasks]
   (fn [tasks [_ name]]
-    (-> tasks
-        (cond->>
-            name (some #(= (:name %) name)))
-        (seq)
-        (some?))))
+    (cond->> tasks
+      name
+      (some #(= (:name %) name))
+
+      :always
+      (some?))))
