@@ -28,170 +28,139 @@ Add the following dependency to your `project.clj`:<br>
 
 See api docs [![cljdoc badge](https://cljdoc.org/badge/jtk-dvlp/re-frame-tasks)](https://cljdoc.org/d/jtk-dvlp/re-frame-tasks/CURRENT)
 
+For more complex usage see working demo within project `dev/jtk_dvlp/your_project.cljs`
+
+#### HTTP-Request as task via local interceptor
+
+Register tasks with different names for different http-requests.
+
 ```clojure
 (ns ^:figwheel-hooks jtk-dvlp.your-project
   (:require
-   [cljs.pprint]
-   [cljs.core.async :refer [timeout]]
-   [jtk-dvlp.async :refer [go <!] :as a]
-
-   [goog.dom :as gdom]
-   [reagent.dom :as rdom]
-
-   [re-frame.core :as rf]
-   [jtk-dvlp.re-frame.async-coeffects :as acoeffects]
-   [jtk-dvlp.re-frame.tasks :as tasks]))
-
-
-(defn- some-async-stuff
-  []
-  (go
-    (<! (timeout 5000))
-    :result))
+    [day8.re-frame.http-fx :as http-fx]
+    [jtk-dvlp.re-frame.tasks :as tasks]))
 
 (tasks/set-completion-keys-per-effect!
- {:some-fx #{:on-complete}
-  :some-other-fx #{:on-done :on-done-with-errors}})
+  {:http-xhrio #{:on-success :on-failure})
 
-(rf/reg-fx :some-fx
-  (fn [{:keys [on-complete] :as x}]
-    (println ":some-fx" x)
-    (go
-      (let [result (<! (some-async-stuff))]
-        (println ":some-fx finished")
-        (rf/dispatch (conj on-complete result))))))
+(re-frame/reg-event-fx :load-data-x
+  [(tasks/as-task :loading-data-x [:http-xhrio])]
+  (fn [_ [_ val]]
+    {:http-xhrio
+    {:method :get
+     :uri "https://httpbin.org/get"
+     :on-success [:load-data-x-success]
+     :on-failure [:load-data-x-failure]}}))
 
-(rf/reg-fx :some-other-fx
-  (fn [{:keys [bad-data on-done on-done-with-errors] :as x}]
-    (println ":some-other-fx" x)
-    (go
-      (try
-        (when bad-data
-          (throw (ex-info "bad data" {:code :bad-data})))
-        (let [result (<! (some-async-stuff))]
-          (rf/dispatch (conj on-done result)))
-        (catch :default e
-          (println ":some-other-fx error" e)
-          (rf/dispatch (conj on-done-with-errors e)))
-        (finally
-          (println ":some-other-fx finished"))))))
+(re-frame/reg-event-fx :load-data-y
+  [(tasks/as-task :loading-data-y [:http-xhrio])]
+  (fn [_ [_ val]]
+    {:http-xhrio
+    {:method :get
+     :uri "https://httpbin.org/get"
+     :on-success [:load-data-y-success]
+     :on-failure [:load-data-y-failure]}}))
+```
 
-(acoeffects/reg-acofx :some-acofx
-  (fn [cofxs & [bad-data :as args]]
-    (println ":some-acofx")
-    (go
-      (when bad-data
-        (throw (ex-info "bad data" {:code :bad-data})))
-      (let [result
-            (->> args
-                 (apply some-async-stuff)
-                 (<!)
-                 (assoc cofxs :some-acofx))]
+#### HTTP-Request as task via global interceptor
 
-        (println ":some-acofx finished")
-        result))))
+Register every `http-xhrio` effect call as task with name `:http-request`.
 
-(rf/reg-event-fx :some-event
-  ;; give it a name and the fxs to monitor
-  [(tasks/as-task :some-task [:some-fx [:fx 1]])
-   ;; supports async coeffects
-   (acoeffects/inject-acofx :some-acofx)]
-  (fn [_ _]
-    (println "handler")
-    {;; modify your task via fx
-     ::tasks/task
-     {:this-is-some-task :data}
+```clojure
+(ns ^:figwheel-hooks jtk-dvlp.your-project
+  (:require
+    [day8.re-frame.http-fx :as http-fx]
+    [jtk-dvlp.re-frame.tasks :as tasks]))
 
-     :some-fx
-     {:on-success [:some-event-success]
-      :on-error [:some-event-error]
-      :on-complete [:some-event-completed]
-      ,,,}
+(tasks/set-completion-keys-per-effect!
+  {:http-xhrio #{:on-success :on-failure})
 
-     :some-other-fx
-     {:on-done [:some-other-event-completed]
-      ,,,}
+(rf/reg-global-interceptor
+ (tasks/as-task :http-request [:http-xhrio]]))
 
-     :fx
-     [[:some-fx
-       {:on-success [:some-event-success]
-        :on-error [:some-event-error]
-        :on-complete [:some-event-completed]
-        ,,,}]
+(re-frame/reg-event-fx :load-data-x
+  (fn [_ [_ val]]
+    {:http-xhrio
+    {:method :get
+     :uri "https://httpbin.org/get"
+     :on-success [:load-data-x-success]
+     :on-failure [:load-data-x-failure]}}))
 
-      ;; monitored fx referenced via path [:fx 1]
-      [:some-other-fx
-       {:on-done [:some-other-event-completed]}]]}))
+(re-frame/reg-event-fx :load-data-y
+  (fn [_ [_ val]]
+    {:http-xhrio
+    {:method :get
+     :uri "https://httpbin.org/get"
+     :on-success [:load-data-y-success]
+     :on-failure [:load-data-y-failure]}}))
+```
 
-;; error case, error within async coeffect
-(rf/reg-event-fx :some-bad-event
-  [(tasks/as-task :some-task [:some-fx :some-other-fx])
-   (acoeffects/inject-acofx [:some-acofx :bad-data])]
-  (fn [_ _]
-    (println "handler")
-    {:some-fx
-     {:on-success [:some-event-success]
-      :on-error [:some-event-error]
-      :on-complete [:some-event-completed]
-      ,,,}
+#### HTTP-Request with default on-success / on-failure handle as task
 
-     :some-other-fx
-     {:on-done [:some-other-event-completed]
-      ,,,}}))
+Sometimes more complex systems set default `on-success` or more often `on-failure` handlers. Since the `as-task` inteceptor wraps these handlers aka completion-keys (see `tasks/set-completion-keys-per-effect`) you need to keep that in mind setting default handlers.
 
-;; error case, error within effect
-(rf/reg-event-fx :some-other-bad-event
-  [(tasks/as-task :some-task [:some-fx :some-other-fx])
-   (acoeffects/inject-acofx :some-acofx)]
-  (fn [_ _]
-    (println "handler")
-    {:some-fx
-     {:on-success [:some-event-success]
-      :on-error [:some-event-error]
-      :on-complete [:some-event-completed]
-      ,,,}
+Fortunately you got some helpers for that.
 
-     :some-other-fx
-     {:bad-data true
-      :on-done [:some-other-event-completed]
-      ,,,}}))
+```clojure
+(ns ^:figwheel-hooks jtk-dvlp.your-project
+  (:require
+    [re-frame.core :as rf]
+    [day8.re-frame.http-fx :as http-fx]
+    [jtk-dvlp.re-frame.tasks :as tasks]))
 
-(rf/reg-event-db :some-event-completed
-  (fn [db _]
-    db))
 
-(rf/reg-event-db :some-other-event-completed
-  (fn [db _]
-    db))
+(rf/reg-fx :remote-request
+  (fn [{:keys [on-success on-failure] :as request}]
+    (let [request
+          (assoc request
+            :on-success (tasks/ensure-original-event on-success :default-on-success)
+            :on-failure (tasks/ensure-original-event on-failure :default-on-failure))]
 
-(defn app-view
+      ;; do some remote request stuff
+      )))
+
+(tasks/set-completion-keys-per-effect!
+  {:remote-request #{:on-success :on-failure})
+
+(rf/reg-global-interceptor
+ (tasks/as-task :remote-request [:remote-request]]))
+
+(re-frame/reg-event-fx :load-data
+  (fn [_ [_ val]]
+    {:remote-request
+     :uri "https://httpbin.org/get"
+     :on-success [:load-data-success]}}))
+```
+
+#### Visualise running tasks
+
+To list your tasks or block the ui or block some ui container there are subscriptions for you.
+
+```clojure
+(ns ^:figwheel-hooks jtk-dvlp.your-project
+  (:require
+    [re-frame.core :as rf]
+    [jtk-dvlp.re-frame.tasks :as tasks]))
+
+
+(defn view
   []
   (let [block-ui?
-        (rf/subscribe [:jtk-dvlp.re-frame.tasks/running?])
+        (rf/subscribe [::tasks/running?])
 
         tasks
-        (rf/subscribe [:jtk-dvlp.re-frame.tasks/tasks])]
+        (rf/subscribe [:tasks/tasks])]
 
     (fn []
-      [:p "open developer tools console for more infos."]
-
       [:<>
-       [:button {:on-click #(rf/dispatch [:some-event])}
-        "exec some event"]
-       [:button {:on-click #(rf/dispatch [:some-bad-event])}
-        "exec some bad event"]
-       [:button {:on-click #(rf/dispatch [:some-other-bad-event])}
-        "exec some other bad event"]
-
        [:ul "task list " (count @tasks)
-        ;; task is a map of `::tasks/id`, `:name`, `:event and the
-        ;; data you carry via `::task` fx from within the event
         (for [{:keys [::tasks/id] :as task} @tasks]
           ^{:key id}
           [:li [:pre (with-out-str (cljs.pprint/pprint task))]])]
 
        (when @block-ui?
          [:div "this div blocks the UI if there are running tasks"])])))
+
 ```
 
 ## Appendix
