@@ -39,27 +39,53 @@
     completion-keys
     (throw (ex-info (str "No completion keys set for effect '" fx "'") {:code ::no-completion-keys, :effect fx}))))
 
-(defn assoc-original-event
-  "Assoc `original-event` to task if `event` is `::unregister-and-dispatch-original` and its original is nil."
-  [event original-event]
-  (let [[event-name _ maybe-original-event]
-        event]
-
-    (cond-> event
-      (and
-       (= event-name ::unregister-and-dispatch-original)
-       (nil? maybe-original-event))
-      (assoc 2 original-event))))
-
-(defn update-original-event
-  "Update original event of task if `event` is `::unregister-and-dispatch-original`."
-  [event f & args]
+(defn task-event?
+  "Check if event is task based, alias `::unregister-and-dispatch-original`"
+  [event]
   (let [[event-name _ _maybe-original-event]
         event]
 
-    (if (= event-name ::unregister-and-dispatch-original)
-      (apply update event 2 f args)
+    (= event-name ::unregister-and-dispatch-original)))
+
+(defn get-original-event
+  "Get original event of task event or `event` itself."
+  [event]
+  (let [[_event-name _ maybe-original-event]
+        event]
+
+    (if (task-event? event)
+      maybe-original-event
       event)))
+
+(defn some-original-event?
+  "Checks for some original event of task or `event` itself."
+  [event]
+  (-> event
+      (get-original-event)
+      (some?)))
+
+(defn assoc-orignal-event
+  "Assocs `original-event` within maybe task `event`, returns maybe modified `event`."
+  [event original-event]
+  (if (task-event? event)
+    (assoc event 2 original-event)
+    event))
+
+(defn update-original-event
+  "Updates original event of maybe task `event`, returns maybe modified `event`."
+  [event f & args]
+  (if (task-event? event)
+    (apply update event 2 f args)
+    event))
+
+(defn ensure-original-event
+  "Ensures `original-event` for direct use or with task."
+  [event original-event]
+  (if (some-original-event? event)
+    event
+    (if (task-event? event)
+      (assoc-orignal-event event original-event)
+      original-event)))
 
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
