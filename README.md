@@ -4,7 +4,7 @@
 
 # Tasks interceptor / helpers for re-frame
 
-Interceptor and helpers to register and unregister (background-)tasks (FXs) in your app-state / app-db to list tasks and / or block single ui parts or the whole ui.
+Interceptors and helpers to register and unregister (background-)tasks (FXs) in your app-state / app-db to list tasks and / or block event execution and single ui parts or the whole ui.
 
 ## Features
 
@@ -14,6 +14,10 @@ Interceptor and helpers to register and unregister (background-)tasks (FXs) in y
   * running task boolean can be quick filtered by task name
 * events to register / unregister tasks yourself
 * helpers to register / unregister tasks into db yourself
+* synchronize / block event execution during running tasks via one line or global interceptor injection
+  * cancel event execution
+  * delay event execution
+  * queue event executions
 
 Also works for async coeffect injections, see https://github.com/jtkDvlp/re-frame-async-coeffects.
 
@@ -40,8 +44,8 @@ Register tasks with different names for different http-requests.
     [day8.re-frame.http-fx :as http-fx]
     [jtk-dvlp.re-frame.tasks :as tasks]))
 
-(tasks/set-completion-keys-per-effect!
-  {:http-xhrio #{:on-success :on-failure})
+(tasks/add-completion-keys-for-effect!
+  :http-xhrio #{:on-success :on-failure})
 
 (re-frame/reg-event-fx :load-data-x
   [(tasks/as-task :loading-data-x [:http-xhrio])]
@@ -72,8 +76,8 @@ Register every `http-xhrio` effect call as task with name `:http-request`.
     [day8.re-frame.http-fx :as http-fx]
     [jtk-dvlp.re-frame.tasks :as tasks]))
 
-(tasks/set-completion-keys-per-effect!
-  {:http-xhrio #{:on-success :on-failure})
+(tasks/add-completion-keys-for-effect!
+  :http-xhrio #{:on-success :on-failure})
 
 (rf/reg-global-interceptor
  (tasks/as-task :http-request [:http-xhrio]]))
@@ -119,8 +123,8 @@ Fortunately you got some helpers for that.
       ;; do some remote request stuff
       )))
 
-(tasks/set-completion-keys-per-effect!
-  {:remote-request #{:on-success :on-failure})
+(tasks/add-completion-keys-for-effect!
+  :remote-request #{:on-success :on-failure})
 
 (rf/reg-global-interceptor
  (tasks/as-task :remote-request [:remote-request]]))
@@ -161,6 +165,44 @@ To list your tasks or block the ui or block some ui container there are subscrip
        (when @block-ui?
          [:div "this div blocks the UI if there are running tasks"])])))
 
+```
+
+#### Synchronize Events via tasks
+
+Register tasks with different names for different http-requests.
+
+```clojure
+(ns ^:figwheel-hooks jtk-dvlp.your-project
+  (:require
+    [day8.re-frame.http-fx :as http-fx]
+    [jtk-dvlp.re-frame.tasks :as tasks]))
+
+(tasks/add-completion-keys-for-effect!
+  :http-xhrio #{:on-success :on-failure})
+
+(re-frame/reg-event-fx :load-data-x
+  [(tasks/as-task :loading-data-x [:http-xhrio])]
+  (fn [_ [_ val]]
+    {:http-xhrio
+    {:method :get
+     :uri "https://httpbin.org/get"
+     :on-success [:load-data-x-success]
+     :on-failure [:load-data-x-failure]}}))
+
+(re-frame/reg-event-fx :load-data-y
+  [(tasks/as-task :loading-data-y [:http-xhrio])]
+  (fn [_ [_ val]]
+    {:http-xhrio
+    {:method :get
+     :uri "https://httpbin.org/get"
+     :on-success [:load-data-y-success]
+     :on-failure [:load-data-y-failure]}}))
+
+(re-frame/reg-event-fx :load-data-based-on-x-n-y
+  [(tasks/while-task :delay #{:load-data-x :load-data-y})]
+  (fn [_ _]
+    ;; use data-x and data-y
+    ,,,)
 ```
 
 ## Appendix

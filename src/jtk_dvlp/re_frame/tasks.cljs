@@ -9,6 +9,44 @@
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Functions
 
+(declare get-tasks)
+
+(defn- ->id
+  [id-or-task]
+  (if (map? id-or-task)
+    (::id id-or-task)
+    id-or-task))
+
+(defn get-task
+  "Gets task in app-db via `id-or-task`. Can return nil."
+  [db id-or-task]
+  (get-in db [::db :tasks (->id id-or-task)]))
+
+(defn get-task-by-name
+  "Gets task in app-db via `name`. Can return nil."
+  [db name]
+  (->> (get-tasks db)
+       (some #(= (:name %) name))))
+
+(defn get-tasks
+  "Gets all tasks in app-db. Can return nil"
+  [db]
+  (vals (get-in db [::db :tasks])))
+
+(defn running?
+  "Checks for running task in app-db via `name`."
+  [db name]
+  (some? (get-task-by-name db name)))
+
+(defn- reset-after-events
+  [db id-or-task events]
+  (assoc-in db [::db :tasks (->id id-or-task) ::after-events] (vec events)))
+
+(defn attach-after-event
+  "Attaches events called after task completion."
+  [db id-or-task event]
+  (update-in db [::db :tasks (->id id-or-task) ::after-events] (fnil conj []) event))
+
 (defn register
   "Register task within app state. Also see event `::register`.
    Tasks can be used via subscriptions `::tasks` and `::running?`."
@@ -19,19 +57,23 @@
   "Unregister task within app state. Also see event `::unregister` and `::unregister-and-dispatch-original`.
    Tasks can be used via subscriptions `::tasks` and `::running?`."
   [db id-or-task]
-  (let [id (if (map? id-or-task) (::id id-or-task) id-or-task)]
-    (update-in db [::db :tasks] dissoc id)))
+  (update-in db [::db :tasks] dissoc (->id id-or-task)))
 
 (def ^:private !completion-keys-per-effect
   (atom {}))
 
 (def set-completion-keys-per-effect!
-  "Sets completion keys per effect."
+  "Sets completion keys per effect via map `{:effect #{:completion-keys,,,}}`."
   (partial reset! !completion-keys-per-effect))
 
 (def merge-completion-keys-per-effect!
-  "Merge completion keys per effect."
+  "Merge completion keys per effect via map `{:effect #{:completion-keys,,,}}`."
   (partial swap! !completion-keys-per-effect merge))
+
+(defn add-completion-keys-for-effect!
+  "Adds completion keys for effect."
+  [effect-key & completion-keys]
+  (swap! !completion-keys-per-effect assoc effect-key (set completion-keys)))
 
 (defn- get-completion-keys-for-effect
   [fx]
@@ -178,7 +220,12 @@
    (interceptor/get-effect context :db)
    (interceptor/get-coeffect context :db)))
 
-(defn- includes-acofxs?
+(defn- update-db
+  [context f & args]
+  (let [db (get-db context)]
+    (interceptor/assoc-effect context :db (apply f db args))))
+
+(defn- contains-acofxs?
   [context]
   (contains? context :acoeffects))
 
@@ -191,7 +238,9 @@
         acoeffects
 
         {task-id ::id :as task}
-        (assoc task ::id dispatch-id)]
+        (merge
+         (get-task db dispatch-id)
+         (assoc task ::id dispatch-id))]
 
     (if (fx-handler-run? context)
       (or
@@ -217,14 +266,14 @@
       (interceptor/assoc-effect context :db (register db task))
       context)))
 
-(defn- get-original-event
+(defn- get-calling-event
   [context]
   (get-in context [:coeffects :original-event]))
 
 (defn- task-by-original-event
   [context]
   (-> context
-      (get-original-event)
+      (get-calling-event)
       (first)))
 
 (defn as-task
@@ -257,7 +306,7 @@
             (-> name-or-task
                 (or (task-by-original-event context))
                 (normalize-task)
-                (assoc :event (get-original-event context))
+                (assoc :event (get-calling-event context))
                 (merge (interceptor/get-effect context ::task)))
 
             ;; NOTE: ::task fx is only to carry task data
@@ -265,12 +314,121 @@
             (update context :effects dissoc ::task)]
 
         (cond
-          (includes-acofxs? context)
+          (contains-acofxs? context)
           (handle-acofx-variant context task fxs)
 
           :else
           (handle-straight-variant context task fxs)))))))
 
+(defn- abort-calling-event
+  [context]
+  (-> context
+      (update :queue empty)
+      (update :stack rest)))
+
+(defn- cancel-event
+  [context tasks event]
+  (.debug js/console "cancel event" (clj->js {:tasks tasks, :event event}))
+  (abort-calling-event context))
+
+(defn- delay-event
+  [context [task :as tasks] [event-name :as event]]
+  (.debug js/console "delay event" (clj->js {:tasks tasks, :event event}))
+  (let [db
+        (get-db context)
+
+        {:keys [::after-events]}
+        (get-task db task)
+
+        get-event-name
+        first
+
+        after-events
+        (->> after-events
+             (remove #(= (get-event-name %) event-name))
+             (vec)
+             (#(conj % event)))]
+
+    (-> context
+        (update-db reset-after-events task after-events)
+        (abort-calling-event))))
+
+(defn- queue-event
+  [context [task :as tasks] event]
+  (.debug js/console "queue event" (clj->js {:tasks tasks, :event event}))
+  (-> context
+      (update-db attach-after-event task event)
+      (abort-calling-event)))
+
+(defn while-task
+  "Creates an interceptor to control event execution during running tasks.
+
+   Choose via `action` between `:cancel` to cancel the event, `:delay` to delay
+   execution till task completion (last event call will take place, precendent
+   calls will be ignored) or `:queue` to queue executions till task completion
+   (considers call order).
+
+   Applicates for every task or selected `tasks` via their names.
+
+   Can be injected multiple times, consider injection order.
+   Can be used as global interceptor, consider there is no reversal allow / pass
+   functionality."
+  ([action]
+   (let [all-tasks identity]
+     (while-task action all-tasks)))
+
+  ([action tasks]
+   (let [action-fn
+         (case action
+           :cancel cancel-event
+           :delay delay-event
+           :queue queue-event
+           action)
+
+         blocking-tasks
+         (cond
+           (fn? tasks)
+           tasks
+
+           (coll? tasks)
+           #(filter (comp (partial contains? (set tasks)) :name) %)
+
+           :else
+           #(filter (comp (partial = tasks) :name) %))]
+
+     (rf/->interceptor
+      :id
+      :while-task
+
+      :before
+      (fn [context]
+        (let [blocking-tasks
+              (-> context
+                  (get-db)
+                  (get-tasks)
+                  (blocking-tasks))
+
+              blocking-tasks?
+              (not (empty? blocking-tasks))
+
+              [event-name :as event]
+              (get-calling-event context)
+
+              pass-events
+              #{::unregister
+                ::unregister-and-dispatch-original}
+
+              pass-event?
+              (contains? pass-events event-name)]
+
+          (cond
+            pass-event?
+            context
+
+            blocking-tasks?
+            (action-fn context blocking-tasks event)
+
+            :else context)))))))
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Events
@@ -279,18 +437,25 @@
   (fn [db [_ task]]
     (register db task)))
 
-(rf/reg-event-db ::unregister
-  (fn [db [_ id-or-task]]
-    (unregister db id-or-task)))
+(rf/reg-event-fx ::unregister
+  (fn [{:keys [db]} [_ id-or-task]]
+    (let [{:keys [::id ::after-events]}
+          (get-task db id-or-task)]
+
+      {:db
+       (unregister db id)
+
+       :dispatch-n
+       (vec after-events)})))
 
 (rf/reg-event-fx ::unregister-and-dispatch-original
-  (fn [_ [_ task original-event-vec & original-event-args]]
-    {::unregister-and-dispatch-original [task original-event-vec original-event-args]}))
+  (fn [_ [_ task original-event & original-event-args]]
+    {::unregister-and-dispatch-original [task original-event original-event-args]}))
 
 (rf/reg-fx ::unregister-and-dispatch-original
-  (fn [[{:keys [::id] :as task} original-event-vec original-event-args]]
-    (when original-event-vec
-      (rf/dispatch (into original-event-vec original-event-args)))
+  (fn [[{:keys [::id] :as task} original-event original-event-args]]
+    (when original-event
+      (rf/dispatch (into original-event original-event-args)))
 
     (if-let [fxs-rest-count (get @!task<->fxs-counters id)]
       (if (= 1 fxs-rest-count)

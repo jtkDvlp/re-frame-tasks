@@ -133,6 +133,24 @@
   (fn [db _]
     db))
 
+(rf/reg-event-db :some-event-canceled-while-any-task
+  [(tasks/while-task :cancel)]
+  (fn [db _]
+    (println "canceled during task")
+    db))
+
+(rf/reg-event-db :some-event-delayed-while-any-task
+  [(tasks/while-task :delay)]
+  (fn [db _]
+    (println "delayed during task")
+    db))
+
+(rf/reg-event-db :some-event-queued-while-any-task
+  [(tasks/while-task :queue)]
+  (fn [db _]
+    (println "queued during task")
+    db))
+
 (defn app-view
   []
   (let [block-ui?
@@ -151,6 +169,12 @@
         "exec some bad event"]
        [:button {:on-click #(rf/dispatch [:some-other-bad-event])}
         "exec some other bad event"]
+       [:button {:on-click #(rf/dispatch [:some-event-canceled-while-any-task])}
+        "exec some event canceled while any task"]
+       [:button {:on-click #(rf/dispatch [:some-event-delayed-while-any-task])}
+        "exec some event delayed while any task"]
+       [:button {:on-click #(rf/dispatch [:some-event-queued-while-any-task])}
+        "exec some event queued while any task"]
 
        [:ul "task list " (count @tasks)
         ;; task is a map of `::tasks/id`, `:name`, `:event and the
@@ -160,7 +184,12 @@
           [:li [:pre (with-out-str (cljs.pprint/pprint task))]])]
 
        (when @block-ui?
-         [:div "this div blocks the UI if there are running tasks"])])))
+         [:div "this div blocks the UI if there are running tasks"])
+
+       [:style {:type "text/css"}
+        "button {
+          display: block;
+        }"]])))
 
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

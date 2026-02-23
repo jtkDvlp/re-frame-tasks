@@ -1,4 +1,4 @@
-(defproject jtk-dvlp/re-frame-tasks "2.1.0-SNAPSHOT"
+(defproject jtk-dvlp/re-frame-tasks "2.2.0-SNAPSHOT"
   :description
   "A re-frame interceptor and helpers to register / unregister (background-)tasks"
 
