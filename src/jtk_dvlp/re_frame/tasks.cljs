@@ -276,12 +276,16 @@
       (get-calling-event)
       (first)))
 
+(declare while-task)
+
 (defn as-task
   "Creates an interceptor to mark an event as task.
    Give it a name of the task or map with at least a `:name` key or nil / nothing to use the event name.
    Tasks can be used via subscriptions `::tasks` and `::running?`.
 
    Given vector `fxs` will be used to identify effects to monitor for the task. Can be the keyword of the effect or an vector of effects path (to handle special :fx effect). Completion keys must be set by `set-completion-keys-per-effect!` or `merge-completion-keys-per-effect!` for the effects.
+
+   Given `while-task` action `while-itself` to inject `while-task` with its task to interceptors.
 
    Within your event handler use `::task` as effect to modify your task data.
 
@@ -293,6 +297,9 @@
    (as-task name-or-task nil))
 
   ([name-or-task fxs]
+   (as-task name-or-task fxs nil))
+
+  ([name-or-task fxs while-itself]
    (rf/->interceptor
     :id
     :as-task
@@ -302,23 +309,28 @@
       (let [fxs
             (map normalize-fx fxs)
 
-            task
+            {task-name :name :as task}
             (-> name-or-task
                 (or (task-by-original-event context))
                 (normalize-task)
                 (assoc :event (get-calling-event context))
                 (merge (interceptor/get-effect context ::task)))
 
-            ;; NOTE: ::task fx is only to carry task data
-            context
-            (update context :effects dissoc ::task)]
+            handle
+            (if (contains-acofxs? context)
+              handle-acofx-variant
+              handle-straight-variant)]
 
-        (cond
-          (contains-acofxs? context)
-          (handle-acofx-variant context task fxs)
+        (cond-> context
+          ;; NOTE: ::task fx is only to carry task data
+          :always
+          (update :effects dissoc ::task)
 
-          :else
-          (handle-straight-variant context task fxs)))))))
+          :always
+          (handle task fxs)
+
+          (some? while-itself)
+          (update :queue conj (while-task while-itself [task-name]))))))))
 
 (defn- abort-calling-event
   [context]
