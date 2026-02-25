@@ -34,9 +34,12 @@
   (vals (get-in db [::db :tasks])))
 
 (defn running?
-  "Checks for running task in app-db via `name`."
-  [db name]
-  (some? (get-task-by-name db name)))
+  "Checks for running task in app-db also via `name`."
+  ([db]
+   (some? (get-tasks db)))
+
+  ([db name]
+   (some? (get-task-by-name db name))))
 
 (defn- reset-after-events
   [db id-or-task events]
