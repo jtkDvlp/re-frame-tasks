@@ -4,7 +4,7 @@
 
 # Tasks interceptor / helpers for re-frame
 
-Interceptors and helpers to register and unregister (background-)tasks (FXs) in your app-state / app-db to list tasks and / or block event execution and single ui parts or the whole ui.
+Interceptors and helpers to register and unregister (background-)tasks (FXs) in your app-state / app-db to list tasks and / or synchronize event execution and single ui parts or the whole ui.
 
 ## Features
 
@@ -14,10 +14,7 @@ Interceptors and helpers to register and unregister (background-)tasks (FXs) in 
   * running task boolean can be quick filtered by task name
 * events to register / unregister tasks yourself
 * helpers to register / unregister tasks into db yourself
-* synchronize / block event execution during running tasks via one line or global interceptor injection
-  * cancel event execution
-  * delay event execution
-  * queue event executions
+* synchronize / queue event execution during running tasks via one line or global interceptor injection
 
 Also works for async coeffect injections, see https://github.com/jtkDvlp/re-frame-async-coeffects.
 
@@ -199,7 +196,7 @@ Register tasks with different names for different http-requests.
      :on-failure [:load-data-y-failure]}}))
 
 (re-frame/reg-event-fx :load-data-based-on-x-n-y
-  [(tasks/while-task :delay #{:load-data-x :load-data-y})]
+  [(tasks/wait-for #{:load-data-x :load-data-y})]
   (fn [_ _]
     ;; use data-x and data-y
     ,,,)

@@ -125,6 +125,17 @@
       :on-done [:some-other-event-completed]
       ,,,}}))
 
+(rf/reg-event-fx :some-other-event-self-queued
+  [(tasks/as-task :some-task [:some-fx] :some-task)
+   (acoeffects/inject-acofx [:some-acofx])]
+  (fn [_ _]
+    (println "handler")
+    {:some-fx
+     {:on-success [:some-event-success]
+      :on-error [:some-event-error]
+      :on-complete [:some-event-completed]
+      ,,,}}))
+
 (rf/reg-event-db :some-event-completed
   (fn [db _]
     db))
@@ -133,20 +144,8 @@
   (fn [db _]
     db))
 
-(rf/reg-event-db :some-event-canceled-while-any-task
-  [(tasks/while-task :cancel)]
-  (fn [db _]
-    (println "canceled during task")
-    db))
-
-(rf/reg-event-db :some-event-delayed-while-any-task
-  [(tasks/while-task :delay)]
-  (fn [db _]
-    (println "delayed during task")
-    db))
-
 (rf/reg-event-db :some-event-queued-while-any-task
-  [(tasks/while-task :queue)]
+  [(tasks/wait-for)]
   (fn [db _]
     (println "queued during task")
     db))
@@ -165,14 +164,12 @@
       [:<>
        [:button {:on-click #(rf/dispatch [:some-event])}
         "exec some event"]
+       [:button {:on-click #(rf/dispatch [:some-other-event-self-queued])}
+        "exec some other event self queued"]
        [:button {:on-click #(rf/dispatch [:some-bad-event])}
         "exec some bad event"]
        [:button {:on-click #(rf/dispatch [:some-other-bad-event])}
         "exec some other bad event"]
-       [:button {:on-click #(rf/dispatch [:some-event-canceled-while-any-task])}
-        "exec some event canceled while any task"]
-       [:button {:on-click #(rf/dispatch [:some-event-delayed-while-any-task])}
-        "exec some event delayed while any task"]
        [:button {:on-click #(rf/dispatch [:some-event-queued-while-any-task])}
         "exec some event queued while any task"]
 

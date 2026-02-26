@@ -255,7 +255,7 @@
           (interceptor/assoc-effect :db (register db task))
           (unregister-by-failed-acofx task ?error)))))
 
-(defn- handle-straight-variant
+(defn- handle-syncfx-variant
   [context task fxs]
   (let [db
         (get-db context)
@@ -279,7 +279,59 @@
       (get-calling-event)
       (first)))
 
-(declare while-task)
+(defn- abort-calling-event
+  [context]
+  (-> context
+      (update :queue empty)
+      (update :stack rest)))
+
+(defn- wait-for-fn
+  "See `wait-for`"
+  [tasks]
+  (let [filter-blocking-tasks
+        (cond
+          (= tasks :any)
+          identity
+
+          (fn? tasks)
+          tasks
+
+          (coll? tasks)
+          #(filter (comp (partial contains? (set tasks)) :name) %)
+
+          :else
+          #(filter (comp (partial = tasks) :name) %))]
+
+    (fn [context]
+      (let [[first-blocking-task :as blocking-tasks]
+            (-> context
+                (get-db)
+                (get-tasks)
+                (filter-blocking-tasks))
+
+            blocking-tasks?
+            (not (empty? blocking-tasks))
+
+            [event-name :as event]
+            (get-calling-event context)
+
+            pass-events
+            #{::unregister
+              ::unregister-and-dispatch-original}
+
+            pass-event?
+            (contains? pass-events event-name)]
+
+        (cond
+          pass-event?
+          context
+
+          blocking-tasks?
+          (-> context
+              (update-db attach-after-event first-blocking-task event)
+              (abort-calling-event))
+
+          :else context)))))
 
 (defn as-task
   "Creates an interceptor to mark an event as task.
@@ -288,7 +340,7 @@
 
    Given vector `fxs` will be used to identify effects to monitor for the task. Can be the keyword of the effect or an vector of effects path (to handle special :fx effect). Completion keys must be set by `set-completion-keys-per-effect!` or `merge-completion-keys-per-effect!` for the effects.
 
-   Given `while-task` action `while-itself` to inject `while-task` with its task to interceptors.
+   Given `wait-for-tasks` to also inject `wait-for` interceptor, see documentation `wait-for`.
 
    Within your event handler use `::task` as effect to modify your task data.
 
@@ -302,17 +354,21 @@
   ([name-or-task fxs]
    (as-task name-or-task fxs nil))
 
-  ([name-or-task fxs while-itself]
+  ([name-or-task fxs wait-for-tasks]
    (rf/->interceptor
     :id
     :as-task
+
+    :before
+    (when (some? wait-for-tasks)
+      (wait-for-fn wait-for-tasks))
 
     :after
     (fn [context]
       (let [fxs
             (map normalize-fx fxs)
 
-            {task-name :name :as task}
+            task
             (-> name-or-task
                 (or (task-by-original-event context))
                 (normalize-task)
@@ -322,128 +378,35 @@
             handle
             (if (contains-acofxs? context)
               handle-acofx-variant
-              handle-straight-variant)]
+              handle-syncfx-variant)]
 
-        (cond-> context
-          ;; NOTE: ::task fx is only to carry task data
-          :always
-          (update :effects dissoc ::task)
+        (-> context
+            ;; NOTE: ::task fx is only to carry task data
+            (update :effects dissoc ::task)
+            (handle task fxs)))))))
 
-          :always
-          (handle task fxs)
-
-          (some? while-itself)
-          (update :queue conj (while-task while-itself [task-name]))))))))
-
-(defn- abort-calling-event
-  [context]
-  (-> context
-      (update :queue empty)
-      (update :stack rest)))
-
-(defn- cancel-event
-  [context tasks event]
-  (.debug js/console "cancel event" (clj->js {:tasks tasks, :event event}))
-  (abort-calling-event context))
-
-(defn- delay-event
-  [context [task :as tasks] [event-name :as event]]
-  (.debug js/console "delay event" (clj->js {:tasks tasks, :event event}))
-  (let [db
-        (get-db context)
-
-        {:keys [::after-events]}
-        (get-task db task)
-
-        get-event-name
-        first
-
-        after-events
-        (->> after-events
-             (remove #(= (get-event-name %) event-name))
-             (vec)
-             (#(conj % event)))]
-
-    (-> context
-        (update-db reset-after-events task after-events)
-        (abort-calling-event))))
-
-(defn- queue-event
-  [context [task :as tasks] event]
-  (.debug js/console "queue event" (clj->js {:tasks tasks, :event event}))
-  (-> context
-      (update-db attach-after-event task event)
-      (abort-calling-event)))
-
-(defn while-task
-  "Creates an interceptor to control event execution during running tasks.
-
-   Choose via `action` between `:cancel` to cancel the event, `:delay` to delay
-   execution till task completion (last event call will take place, precendent
-   calls will be ignored) or `:queue` to queue executions till task completion
-   (considers call order).
-
-   Applicates for every task or selected `tasks` via their names.
+;; TODO: Mit acoeffects zum Laufen bringen
+(defn wait-for
+  "Creates an interceptor to queue event execution during running `tasks`.
+   `tasks` can be
+   - `:any` for any task
+   - a task name
+   - a collection of task names
+   - a 1-argument function given all running tasks to filter for blocking tasks
 
    Can be injected multiple times, consider injection order.
    Can be used as global interceptor, consider there is no reversal allow / pass
    functionality."
-  ([action]
-   (let [all-tasks identity]
-     (while-task action all-tasks)))
+  ([]
+   (wait-for :any))
 
-  ([action tasks]
-   (let [action-fn
-         (case action
-           :cancel cancel-event
-           :delay delay-event
-           :queue queue-event
-           action)
+  ([tasks]
+   (rf/->interceptor
+    :id
+    :wait-for
 
-         blocking-tasks
-         (cond
-           (fn? tasks)
-           tasks
-
-           (coll? tasks)
-           #(filter (comp (partial contains? (set tasks)) :name) %)
-
-           :else
-           #(filter (comp (partial = tasks) :name) %))]
-
-     (rf/->interceptor
-      :id
-      :while-task
-
-      :before
-      (fn [context]
-        (let [blocking-tasks
-              (-> context
-                  (get-db)
-                  (get-tasks)
-                  (blocking-tasks))
-
-              blocking-tasks?
-              (not (empty? blocking-tasks))
-
-              [event-name :as event]
-              (get-calling-event context)
-
-              pass-events
-              #{::unregister
-                ::unregister-and-dispatch-original}
-
-              pass-event?
-              (contains? pass-events event-name)]
-
-          (cond
-            pass-event?
-            context
-
-            blocking-tasks?
-            (action-fn context blocking-tasks event)
-
-            :else context)))))))
+    :before
+    (wait-for-fn tasks))))
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Events
