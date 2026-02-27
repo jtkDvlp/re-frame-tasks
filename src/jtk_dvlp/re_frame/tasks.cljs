@@ -41,10 +41,6 @@
   ([db name]
    (some? (get-task-by-name db name))))
 
-(defn- reset-after-events
-  [db id-or-task events]
-  (assoc-in db [::db :tasks (->id id-or-task) ::after-events] (vec events)))
-
 (defn attach-after-event
   "Attaches events called after task completion."
   [db id-or-task event]
@@ -303,14 +299,14 @@
           #(filter (comp (partial = tasks) :name) %))]
 
     (fn [context]
-      (let [[first-blocking-task :as blocking-tasks]
-            (-> context
-                (get-db)
-                (get-tasks)
-                (filter-blocking-tasks))
+      (let [event-meta
+            (some-> context
+                    (:coeffects)
+                    (:event)
+                    (meta))
 
-            blocking-tasks?
-            (not (empty? blocking-tasks))
+            acofx-dispatch-id
+            (:jtk-dvlp.re-frame.async-coeffects/dispatch-id event-meta)
 
             [event-name :as event]
             (get-calling-event context)
@@ -320,10 +316,27 @@
               ::unregister-and-dispatch-original}
 
             pass-event?
-            (contains? pass-events event-name)]
+            (contains? pass-events event-name)
+
+            [first-blocking-task & more-blocking-tasks :as blocking-tasks]
+            (-> context
+                (get-db)
+                (get-tasks)
+                (filter-blocking-tasks))
+
+            acofx-completion-call?
+            (and
+             (nil? more-blocking-tasks)
+             (= (::id first-blocking-task) acofx-dispatch-id))
+
+            blocking-tasks?
+            (not (empty? blocking-tasks))]
 
         (cond
           pass-event?
+          context
+
+          acofx-completion-call?
           context
 
           blocking-tasks?
@@ -385,7 +398,6 @@
             (update :effects dissoc ::task)
             (handle task fxs)))))))
 
-;; TODO: Mit acoeffects zum Laufen bringen
 (defn wait-for
   "Creates an interceptor to queue event execution during running `tasks`.
    `tasks` can be
