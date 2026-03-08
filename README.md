@@ -16,6 +16,17 @@ Interceptors and helpers to register and unregister (background-)tasks (FXs) in 
 * helpers to register / unregister tasks into db yourself
 * synchronize / queue event execution during running tasks via one line or global interceptor injection
 
+DRAFT:
+* fx/::dispatch-debounce
+* fx/::flush-debounce
+* public functions
+* sub/::tasks
+* sub/::running?
+* event/::register
+* event/::unregister
+
+DRAFT: Beispiele auch im doc string der Funktionen?
+
 Also works for async coeffect injections, see https://github.com/jtkDvlp/re-frame-async-coeffects.
 
 ## Getting started
@@ -24,6 +35,8 @@ Also works for async coeffect injections, see https://github.com/jtkDvlp/re-fram
 
 Add the following dependency to your `project.clj`:<br>
 [![Clojars Project](https://img.shields.io/clojars/v/jtk-dvlp/re-frame-tasks.svg)](https://clojars.org/jtk-dvlp/re-frame-tasks)
+
+Requires some dependencies within your project, see `project.clj :profiles :provided :dependencies`.
 
 ### Usage
 

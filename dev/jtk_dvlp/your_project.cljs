@@ -18,9 +18,11 @@
     (<! (timeout 5000))
     :result))
 
-(tasks/set-completion-keys-per-effect!
- {:some-fx #{:on-complete}
-  :some-other-fx #{:on-done :on-done-with-errors}})
+(tasks/reg-completion-keys-for-effect
+ :some-other-fx :on-done :on-done-with-errors)
+
+(tasks/reg-completion-keys-for-effect
+ :some-fx :on-complete)
 
 (rf/reg-fx :some-fx
   (fn [{:keys [on-complete] :as x}]

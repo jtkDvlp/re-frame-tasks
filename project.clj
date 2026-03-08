@@ -1,46 +1,52 @@
-(defproject jtk-dvlp/re-frame-tasks "2.2.0-SNAPSHOT"
+(defproject jtk-dvlp/re-frame-tasks "3.0.0-SNAPSHOT"
   :description
-  "A re-frame interceptor and helpers to register / unregister (background-)tasks"
+  "re-frame interceptors to introduce tasks, synchronize event flow and debounce event dispatches"
 
   :url
   "https://github.com/jtkDvlp/re-frame-tasks"
 
   :license
   {:name
-   "MIT"
+   "EPL-2.0 OR GPL-2.0-or-later WITH Classpath-exception-2.0"
 
    :url
-   "https://github.com/jtkDvlp/budgetbook/blob/master/LICENSE"}
+   "https://www.eclipse.org/legal/epl-2.0/"}
+
+  :plugins
+  [[lein-ancient "0.7.0"]]
 
   :source-paths
   ["src"]
 
-  :target-path
-  "target"
-
-  :clean-targets
-  ^{:protect false}
-  [:target-path]
-
-  :dependencies
-  [[org.clojure/clojure "1.10.0"]
-   [org.clojure/clojurescript "1.10.773"]
-   [jtk-dvlp/core.async-helpers "3.2.0"]
-   [re-frame "1.1.2"]]
-
   :profiles
-  {:dev
+  {:provided
    {:dependencies
-    [[com.bhauman/figwheel-main "0.2.7"]
-     [org.clojure/core.async "1.3.610"]
+    [[org.clojure/clojure "1.12.5"]
+     [com.taoensso/timbre "6.8.0"]
+     [re-frame "1.4.7"]]}
+
+   :dev
+   {:dependencies
+    [[com.bhauman/figwheel-main "0.2.20"]
+
+     [reagent "2.0.1"]
+     [cljsjs/react "18.3.1-1"]
+     [cljsjs/react-dom "18.3.1-1"]
+
+     [org.clojure/core.async "1.9.865"]
+     [jtk-dvlp/core.async-helpers "3.5.0"]
+
      [net.clojars.jtkdvlp/re-frame-async-coeffects "2.0.0"]]
 
     :source-paths
-    ["dev"]}
+    ["dev"]
+
+    :resource-paths
+    ["target"]}
 
    :repl
    {:dependencies
-    [[cider/piggieback "0.5.0"]]
+    [[cider/piggieback "0.7.0"]]
 
     :repl-options
     {:nrepl-middleware
