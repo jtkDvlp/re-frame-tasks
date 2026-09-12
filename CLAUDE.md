@@ -25,6 +25,13 @@ Historie nicht wieder und finge bei `1.0.0` an. Die älteren `v1.0.0`- und
 `include-v-in-release-name: false` steht deshalb daneben. Ohne sie
 entsteht ein Tag `2.3.0` mit einem Release namens `v2.3.0` darüber.
 
+**WATCHOUT: Auch der Paketname landet sonst im Tag.** In einer
+Manifest-Konfiguration stellt release-please die Komponente voran, der
+erste Release-PR hier hieß entsprechend
+`jtk-dvlp/re-frame-tasks-2.2.1`. Dagegen steht
+`include-component-in-tag: false`. Das Repo enthält genau ein Paket, die
+Komponente trennt hier also nichts.
+
 **`.release-please-manifest.json` und `version.txt` gehören der
 Maschine.** Nicht von Hand editieren. `version.txt` legt release-please
 beim ersten Release selbst an; gelesen wird sie von niemandem — die

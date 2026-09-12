@@ -5,6 +5,7 @@
     ".": {
       "release-type": "simple",
       "package-name": "jtk-dvlp/re-frame-tasks",
+      "include-component-in-tag": false,
       "include-v-in-tag": false,
       "include-v-in-release-name": false,
       "extra-files": [
