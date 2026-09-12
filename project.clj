@@ -1,4 +1,8 @@
-(defproject jtk-dvlp/re-frame-tasks "2.2.0-SNAPSHOT"
+;; WATCHOUT: Die Version pflegt release-please, nicht die Hand. Die
+;; Anmerkung `x-release-please-version` ist das, woran es die Zeile
+;; findet -- ohne sie wird nur das Changelog fortgeschrieben und das
+;; Paket trägt weiter die alte Zahl.
+(defproject jtk-dvlp/re-frame-tasks "2.2.0" ; x-release-please-version
   :description
   "A re-frame interceptor and helpers to register / unregister (background-)tasks"
 
@@ -14,6 +18,25 @@
 
   :source-paths
   ["src"]
+
+  :deploy-repositories
+  [["clojars"
+    {:url
+     "https://repo.clojars.org/"
+
+     ;; WATCHOUT: Die Zugangsdaten stehen als Repository-Secrets und
+     ;; kommen über Umgebungsvariablen in den Build -- nie als Datei im
+     ;; Repo, auch nicht als ignorierte.
+     :username
+     :env/clojars_username
+
+     :password
+     :env/clojars_password
+
+     ;; NOTE: Im Lauf liegt kein Signaturschlüssel, und Clojars verlangt
+     ;; keine Signatur.
+     :sign-releases
+     false}]]
 
   :target-path
   "target"
