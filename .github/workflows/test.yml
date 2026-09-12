@@ -1,0 +1,67 @@
+name: test
+
+# NOTE: Wiederverwendbarer Workflow, damit der CI-Lauf auf dem PR und der
+# Lauf vor der Veröffentlichung nachweislich dasselbe prüfen.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: >
+          Git-Ref, der geprüft wird. Leer bedeutet: der auslösende Commit.
+        type: string
+        required: false
+        default: ""
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: DeLaGuardo/setup-clojure@13.7.0
+        with:
+          lein: latest
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: m2-${{ hashFiles('project.clj') }}
+          restore-keys: m2-
+
+      # WATCHOUT: Es gibt noch keine Unit-Tests. Geprüft wird, dass die
+      # Bibliothek unter :advanced durchkompiliert -- das fängt Analyse-
+      # und Externs-Fehler, die sonst erst den Nutzern der Bibliothek
+      # auffallen. Sobald es Tests gibt, kommen sie hier daneben, nicht
+      # an deren Stelle.
+      #
+      # WATCHOUT: `-dev` ist Absicht. Ohne das Profil steht nur da, was
+      # die Bibliothek als Abhängigkeit deklariert -- sonst kompiliert sie
+      # womöglich nur dank einer Dev-Abhängigkeit, die beim Nutzer fehlt.
+      #
+      # WATCHOUT: Der Compiler meldet eine unbekannte Var nur als WARNING
+      # und beendet sich mit 0 (nachgestellt mit einem Aufruf auf eine
+      # nicht existierende Funktion). `:warnings-as-errors` gibt es in
+      # cljs.main nicht, also wird die Ausgabe ausgewertet.
+      - name: Compile library
+        run: |
+          set -o pipefail
+          log="$(mktemp)"
+
+          lein with-profile -dev run -m cljs.main \
+            --optimizations advanced \
+            --output-dir target/ci \
+            --output-to target/ci/main.js \
+            --compile jtk-dvlp.re-frame.tasks 2>&1 | tee "$log"
+
+          if grep -E '^WARNING' "$log"; then
+            echo "::error::Der Compiler meldet Warnungen, siehe oben."
+            exit 1
+          fi
