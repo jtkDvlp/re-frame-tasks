@@ -20,18 +20,30 @@
 
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Helpers: DB Effect
+;; Helpers: Coeffects
 
-(defn- get-app-db
-  [context]
-  (or
-   (interceptor/get-effect context :db)
-   (interceptor/get-coeffect context :db)))
+(defn- compose-coeffects
+  [inner-cofx outer-cofx]
+  (let [{outer-before-fn :before
+         outer-after-fn :after}
+        outer-cofx
 
-(defn- update-app-db
-  [context f & args]
-  (let [db (get-app-db context)]
-    (interceptor/assoc-effect context :db (apply f db args))))
+        {inner-before-fn :before
+         inner-after-fn :after}
+        inner-cofx]
+
+    (cond-> outer-cofx
+      (and (some? inner-before-fn) (some? outer-before-fn))
+      (update :before #(comp %2 %1) inner-before-fn)
+
+      (and (some? inner-before-fn))
+      (assoc :before inner-before-fn)
+
+      (and (some? inner-after-fn) (some? outer-after-fn))
+      (update :after #(comp %2 %1) inner-after-fn)
+
+      (and (some? inner-after-fn))
+      (assoc :after inner-after-fn))))
 
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -71,6 +83,21 @@
        (if (fx-special? effect-key)
          (apply update effect effect-index f args)
          (apply f effect args))))))
+
+
+;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Helpers: DB Effect
+
+(defn- get-app-db
+  [context]
+  (or
+   (interceptor/get-effect context :db)
+   (interceptor/get-coeffect context :db)))
+
+(defn- update-app-db
+  [context f & args]
+  (let [db (get-app-db context)]
+    (interceptor/assoc-effect context :db (apply f db args))))
 
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -339,65 +366,65 @@
    (wait-for tasks nil))
 
   ([tasks debounce-ms]
-   (cond-> []
-     :always
-     (conj (rf/->interceptor
-            :id ::wait-for
+   (let [wait-for
+         (rf/->interceptor
+          :id ::wait-for
 
-            :before
-            (let [filter-blocking-tasks
-                  (cond
-                    (fn? tasks)
-                    tasks
+          :before
+          (let [filter-blocking-tasks
+                (cond
+                  (fn? tasks)
+                  tasks
 
-                    (= tasks :any)
-                    identity
+                  (= tasks :any)
+                  identity
 
-                    (coll? tasks)
-                    #(filter (comp (partial contains? (set tasks)) :name) %)
+                  (coll? tasks)
+                  #(filter (comp (partial contains? (set tasks)) :name) %)
 
-                    :else
-                    #(filter (comp (partial = tasks) :name) %))]
+                  :else
+                  #(filter (comp (partial = tasks) :name) %))]
 
-              (fn [context]
-                (log/trace "waiting for tasks"
-                  {:context context
-                   :tasks tasks
-                   :debounce-ms debounce-ms})
-                (let [[original-event-name :as original-event]
-                      (-get-original-event context)
+            (fn [context]
+              (log/trace "waiting for tasks"
+                {:context context
+                 :tasks tasks
+                 :debounce-ms debounce-ms})
+              (let [[original-event-name :as original-event]
+                    (-get-original-event context)
 
-                      events-to-pass
-                      #{::unregister
-                        ::unregister-and-dispatch-original}
+                    events-to-pass
+                    #{::unregister
+                      ::unregister-and-dispatch-original}
 
-                      tasks-to-ignore
-                      (-> original-event
-                          (meta)
-                          (::wait-for)
-                          (:ignore-tasks)
-                          (set))
+                    tasks-to-ignore
+                    (-> original-event
+                        (meta)
+                        (::wait-for)
+                        (:ignore-tasks)
+                        (set))
 
-                      blocking-tasks
-                      (->> context
-                           (get-app-db)
-                           (get-tasks)
-                           (filter-blocking-tasks)
-                           (remove (comp tasks-to-ignore :name)))]
+                    blocking-tasks
+                    (->> context
+                         (get-app-db)
+                         (get-tasks)
+                         (filter-blocking-tasks)
+                         (remove (comp tasks-to-ignore :name)))]
 
-                  (cond
-                    (contains? events-to-pass original-event-name)
-                    context
+                (cond
+                  (contains? events-to-pass original-event-name)
+                  context
 
-                    (not (empty? blocking-tasks))
-                    (-> context
-                        (abort-original-event)
-                        (delay-event blocking-tasks original-event))
+                  (not (empty? blocking-tasks))
+                  (-> context
+                      (abort-original-event)
+                      (delay-event blocking-tasks original-event))
 
-                    :else context))))))
+                  :else context)))))]
 
-     (some? debounce-ms)
-     (conj (debounce debounce-ms)))))
+     (cond->> wait-for
+       (some? debounce-ms)
+       (compose-coeffects (debounce debounce-ms))))))
 
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -511,53 +538,49 @@
    (as-task name-or-task effects wait-for-tasks nil))
 
   ([name-or-task effects wait-for-tasks debounce-ms]
-   ;; WATCHOUT: `into`, not `conj`. Both branches add a collection of
-   ;; interceptors, and conj-ing one nests it. re-frame flattens an event's
-   ;; interceptor chain, so nesting went unnoticed there -- but
-   ;; `reg-global-interceptor` takes one interceptor at a time and reads
-   ;; `:id` off what it gets, so it silently registered nothing.
-   (cond-> []
-     (some? wait-for-tasks)
-     (into (wait-for wait-for-tasks))
+   (let [as-task
+         (rf/->interceptor
+          :id ::as-task
 
-     (some? debounce-ms)
-     (conj (debounce debounce-ms))
+          :after
+          (fn [context]
+            (log/trace "creating event as task"
+              {:context context
+               :name-or-task name-or-task
+               :effects effects
+               :wait-for-tasks wait-for-tasks
+               :debounce-ms debounce-ms})
+            (let [task
+                  (-> name-or-task
+                      (or (task-name-by-original-event context))
+                      (normalize-task)
+                      (merge (interceptor/get-effect context ::task))
+                      (assoc ::event (-get-original-event context))
+                      (assoc ::id (random-uuid)))
 
-     :always
-     (into [(rf/->interceptor
-             :id ::as-task
+                  context-with-task
+                  (-> context
+                      ;; NOTE: ::task effect is only to carry task data
+                      (update :effects dissoc ::task)
+                      (update-app-db register task)
+                      (unregister-by-effects task effects))
 
-             :after
-             (fn [context]
-               (log/trace "creating event as task"
-                 {:context context
-                  :name-or-task name-or-task
-                  :effects effects
-                  :wait-for-tasks wait-for-tasks
-                  :debounce-ms debounce-ms})
-               (let [task
-                     (-> name-or-task
-                         (or (task-name-by-original-event context))
-                         (normalize-task)
-                         (merge (interceptor/get-effect context ::task))
-                         (assoc ::event (-get-original-event context))
-                         (assoc ::id (random-uuid)))
+                  no-unregister-effects?
+                  (-> context-with-task
+                      (get-app-db)
+                      (get-task task)
+                      (::effects)
+                      (empty?))]
 
-                     context-with-task
-                     (-> context
-                         ;; NOTE: ::task effect is only to carry task data
-                         (update :effects dissoc ::task)
-                         (update-app-db register task)
-                         (unregister-by-effects task effects))
+              (cond-> context-with-task
+                ;; NOTE: no effects to unregister task, then unregister immediately
+                no-unregister-effects?
+                (update-app-db unregister task)))))]
 
-                     no-unregister-effects?
-                     (-> context-with-task
-                         (get-app-db)
-                         (get-task task)
-                         (::effects)
-                         (empty?))]
+     (cond->> as-task
 
-                 (cond-> context-with-task
-                   ;; NOTE: no effects to unregister task, then unregister immediately
-                   no-unregister-effects?
-                   (update-app-db unregister task)))))]))))
+       (some? wait-for-tasks)
+       (compose-coeffects (wait-for wait-for-tasks))
+
+       (some? debounce-ms)
+       (compose-coeffects (debounce debounce-ms))))))
