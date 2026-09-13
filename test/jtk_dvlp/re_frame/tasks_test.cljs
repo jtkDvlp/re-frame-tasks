@@ -289,3 +289,73 @@
             (fn []
               (is (= 1 @runs) "flushing runs it without waiting")
               (done))))))))
+
+(deftest flush-debounce-is-also-an-effect
+  (async done
+    (let [runs
+          (atom 0)]
+
+      (rf/reg-event-db ::flushable-by-fx
+        [(tasks/debounce idle-debounce-window-ms)]
+        (fn [db _] (swap! runs inc) db))
+
+      (rf/reg-event-fx ::flush-it
+        (fn [_ _]
+          {::tasks/flush-debounce {:dispatch [::flushable-by-fx]}}))
+
+      (rf/dispatch [::flushable-by-fx])
+
+      (when-queue-drained
+        (fn []
+          (rf/dispatch [::flush-it])
+          (when-queue-drained
+            (fn []
+              (is (= 1 @runs) "the effect flushes the pending dispatch")
+              (done))))))))
+
+(deftest wait-for-takes-a-debounce-window
+  (let [chain
+        (tasks/wait-for :any debounce-window-ms)]
+
+    (is (= [:jtk-dvlp.re-frame.tasks/wait-for
+            :jtk-dvlp.re-frame.tasks/debounce]
+           (mapv :id chain)))))
+
+(deftest as-task-takes-tasks-to-wait-for-and-a-debounce-window
+  (let [chain
+        (tasks/as-task :search [::probe-fx] :any debounce-window-ms)]
+
+    (is (= [:jtk-dvlp.re-frame.tasks/wait-for
+            :jtk-dvlp.re-frame.tasks/debounce
+            :coeffects
+            :jtk-dvlp.re-frame.tasks/as-task]
+           (mapv :id chain))
+        "the sugar arguments prepend their interceptors, in order")))
+
+(deftest wait-for-can-be-ignored-per-event
+  (async done
+    (let [effect-args
+          (atom nil)]
+
+      (tasks/reg-completion-keys-for-effect ::probe-fx :on-success)
+      (rf/reg-fx ::probe-fx (partial reset! effect-args))
+
+      (rf/reg-event-fx ::blocking
+        [(tasks/as-task :blocking [::probe-fx])]
+        (fn [_ _] {::probe-fx {:on-success [::irrelevant]}}))
+
+      (rf/reg-event-db ::irrelevant (fn [db _] db))
+
+      (rf/reg-event-db ::ignores-the-block
+        [(tasks/wait-for :blocking)]
+        (fn [db _] (assoc db ::got-through? true)))
+
+      (rf/dispatch-sync [::blocking])
+      (rf/dispatch-sync
+       (with-meta [::ignores-the-block]
+         {::tasks/wait-for {:ignore-tasks #{:blocking}}}))
+
+      (is (true? (::got-through? @rf-db/app-db))
+          "the named task is ignored for this one event")
+
+      (when-queue-drained done))))
