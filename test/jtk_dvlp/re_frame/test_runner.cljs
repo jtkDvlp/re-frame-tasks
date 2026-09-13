@@ -17,9 +17,10 @@
 
 (defn- readable-loggers!
   []
-  ;; NOTE: re-frame logs cljs data through `console`, which node renders as
-  ;; raw JS objects -- unreadable. `pr-str` makes a warning legible enough
-  ;; to act on.
+  ;; NOTE: re-frame logs cljs data through `console`, which node renders
+  ;; as raw JS objects -- unreadable. `pr-str` makes a warning legible
+  ;; enough to act on. Only for warnings raised during the run; whatever
+  ;; re-frame logs while its namespaces load happens before this.
   (let [log (fn [& args] (println (apply pr-str args)))]
     (rf/set-loggers!
      {:log log, :warn log, :error log, :debug log, :group log
