@@ -32,6 +32,13 @@ erste Release-PR hier hieß entsprechend
 `include-component-in-tag: false`. Das Repo enthält genau ein Paket, die
 Komponente trennt hier also nichts.
 
+**WATCHOUT: Sichtbar im Changelog heißt versionswirksam.** Deshalb
+stehen in `changelog-sections` alle Typen außer `feat` und `fix` auf
+`hidden: true`. release-please kennt keinen Typ, der im Changelog steht,
+aber die Version in Ruhe lässt: Sobald ein Commit sichtbar ist, wird
+mindestens eine Patch-Version daraus. Ein PR, der nur `ci:` oder `docs:`
+enthält, erzeugt jetzt gar keinen Release-PR — genau so ist es gewollt.
+
 **`.release-please-manifest.json` und `version.txt` gehören der
 Maschine.** Nicht von Hand editieren. `version.txt` legt release-please
 beim ersten Release selbst an; gelesen wird sie von niemandem — die
