@@ -5,6 +5,7 @@
    [jtk-dvlp.async :refer [go <!] :as a]
 
    [goog.dom :as gdom]
+   [reagent.core :as reagent]
    [reagent.dom :as rdom]
 
    [re-frame.core :as rf]
@@ -146,6 +147,23 @@
   (fn [db _]
     db))
 
+(def ^:private search-debounce-ms
+  "Long enough to swallow a burst of keystrokes, short enough that the
+   demo still feels immediate."
+  300)
+
+;; debounced: hammer the button, the handler runs once
+(rf/reg-event-db :some-debounced-event
+  [(tasks/debounce search-debounce-ms)]
+  (fn [db _]
+    (println "debounced handler")
+    db))
+
+;; ... unless something flushes the pending dispatch first
+(rf/reg-event-fx :flush-some-debounced-event
+  (fn [_ _]
+    {::tasks/flush-debounce {:dispatch [:some-debounced-event]}}))
+
 (rf/reg-event-db :some-event-queued-while-any-task
   [(tasks/wait-for)]
   (fn [db _]
@@ -164,23 +182,39 @@
       [:p "open developer tools console for more infos."]
 
       [:<>
-       [:button {:on-click #(rf/dispatch [:some-event])}
+       [:button {:on-click (reagent/partial rf/dispatch [:some-event])}
         "exec some event"]
-       [:button {:on-click #(rf/dispatch [:some-other-event-self-queued])}
+       [:button {:on-click
+                 (reagent/partial rf/dispatch
+                                  [:some-other-event-self-queued])}
         "exec some other event self queued"]
-       [:button {:on-click #(rf/dispatch [:some-bad-event])}
+       [:button {:on-click (reagent/partial rf/dispatch [:some-bad-event])}
         "exec some bad event"]
-       [:button {:on-click #(rf/dispatch [:some-other-bad-event])}
+       [:button {:on-click
+                 (reagent/partial rf/dispatch [:some-other-bad-event])}
         "exec some other bad event"]
-       [:button {:on-click #(rf/dispatch [:some-event-queued-while-any-task])}
+       [:button {:on-click
+                 (reagent/partial rf/dispatch
+                                  [:some-event-queued-while-any-task])}
         "exec some event queued while any task"]
+       [:button {:on-click
+                 (reagent/partial rf/dispatch [:some-debounced-event])}
+        "exec some debounced event (hammer it)"]
+       [:button {:on-click
+                 (reagent/partial rf/dispatch
+                                  [:flush-some-debounced-event])}
+        "flush the debounced event"]
 
        [:ul "task list " (count @tasks)
-        ;; task is a map of `::tasks/id`, `:name`, `:event and the
-        ;; data you carry via `::task` fx from within the event
-        (for [{:keys [::tasks/id] :as task} @tasks]
-          ^{:key id}
-          [:li [:pre (with-out-str (cljs.pprint/pprint task))]])]
+        ;; A task is a map of `::tasks/id`, `:name`, `::tasks/event` and
+        ;; the data you carry via the `::tasks/task` fx from within the
+        ;; event.
+        ;; WATCHOUT: `doall` -- `for` is lazy, and realized outside the
+        ;; reactive context reagent would not see the subscription.
+        (doall
+         (for [{:keys [::tasks/id] :as task} @tasks]
+           ^{:key id}
+           [:li [:pre (with-out-str (cljs.pprint/pprint task))]]))]
 
        (when @block-ui?
          [:div "this div blocks the UI if there are running tasks"])
