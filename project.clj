@@ -44,6 +44,16 @@
     :resource-paths
     ["target"]}
 
+   ;; NOTE: The library itself declares no ClojureScript dependency -- a
+   ;; consumer brings their own. The test run needs a compiler, so this
+   ;; profile pins the one the dev build resolves to.
+   :test
+   {:dependencies
+    [[org.clojure/clojurescript "1.10.773"]]
+
+    :source-paths
+    ["test"]}
+
    :repl
    {:dependencies
     [[cider/piggieback "0.7.0"]]
