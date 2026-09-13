@@ -46,10 +46,10 @@
         (is (empty? (tasks/get-tasks db)))))))
 
 (deftest get-task-by-name-returns-the-task
-  ;; WATCHOUT: This used to return `true` instead of the task, because
-  ;; `some` yields the predicate's result. Every caller reading a key off
-  ;; the result got nil, and `running?` only worked because it merely
-  ;; checks for something non-nil.
+  ;; This one exists because the function returned `true` rather than
+  ;; the task: every caller reading a key off the result got nil, and
+  ;; `running?` looked fine throughout because it only ever checks for
+  ;; something non-nil.
   (let [loading
         (task :loading)
 
@@ -214,11 +214,10 @@
           (done))))))
 
 (deftest as-task-works-as-a-global-interceptor
-  ;; WATCHOUT: `as-task` returns a chain of interceptors, not a single
-  ;; one -- it needs the `::uuid` coeffect alongside the interceptor
-  ;; proper. `reg-global-interceptor` takes one at a time, so the chain
-  ;; has to be registered element by element. Passing the chain itself
-  ;; registers nothing and fails silently, which is what this guards.
+  ;; NOTE: `as-task` returns a chain -- it needs the `::uuid` coeffect
+  ;; alongside the interceptor proper. `reg-global-interceptor` takes one
+  ;; at a time, so the chain goes in element by element. Handing it the
+  ;; chain registers nothing and says nothing, which is what this guards.
   (async done
     (tasks/reg-completion-keys-for-effect ::probe-fx :on-success)
     (rf/reg-fx ::probe-fx (constantly nil))
