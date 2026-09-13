@@ -386,7 +386,10 @@
                            (get-app-db)
                            (get-tasks)
                            (filter-blocking-tasks)
-                           (remove tasks-to-ignore))]
+                           ;; WATCHOUT: `:ignore-tasks` holds task names,
+                           ;; the collection holds task maps. Removing by
+                           ;; the set itself never matched anything.
+                           (remove (comp tasks-to-ignore :name)))]
 
                   (cond
                     (contains? events-to-pass original-event-name)
