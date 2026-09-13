@@ -79,9 +79,6 @@
 (defn- create-timeout!
   [f ms]
   (log/trace "creating timeout" {:f f, :ms ms})
-  ;; WATCHOUT: `js-invoke` calls a method *on an object*; given the bare
-  ;; name it treated the string as the object and blew up. `js/setTimeout`
-  ;; resolves in both the browser and node.
   {:ms ms, :f f, :t (js/setTimeout f ms)})
 
 (defn- cancel-timeout!
@@ -386,9 +383,6 @@
                            (get-app-db)
                            (get-tasks)
                            (filter-blocking-tasks)
-                           ;; WATCHOUT: `:ignore-tasks` holds task names,
-                           ;; the collection holds task maps. Removing by
-                           ;; the set itself never matched anything.
                            (remove (comp tasks-to-ignore :name)))]
 
                   (cond
@@ -425,9 +419,6 @@
 (def ^{:private true, :rf/reg-event ::unregister-and-dispatch-original} unregister-and-dispatch-original-event
   (rf/reg-event-fx ::unregister-and-dispatch-original
     (fn [{:keys [db]} [_ task effect original-event]]
-      ;; WATCHOUT: The task travels in the event vector as the snapshot
-      ;; taken before its effects were attached, so it never carries
-      ;; `::effects`. What is still outstanding has to come from app-db.
       (let [task-completed?
             (-> db
                 (get-task task)
@@ -468,9 +459,6 @@
   [effect effect-key completion-keys task]
   (reduce
    (fn [effect completion-key]
-     ;; WATCHOUT: The helper does the `update` on the effect map itself.
-     ;; Wrapping it in another `update` handed it the completion event
-     ;; vector instead, which then failed on a keyword index.
      (unregister-by-effect-completion-key
       effect effect-key completion-key task))
    effect
@@ -486,10 +474,6 @@
        (contains-effect? context effect-key)
        (some? completion-keys))
       (-> (update-effect effect-key unregister-by-effect-completion-keys effect-key completion-keys task)
-          ;; WATCHOUT: `attach-effect` needs the task. Without it the
-          ;; effect was recorded under the effect key as if that were a
-          ;; task id, the task itself kept an empty `::effects`, and
-          ;; `as-task` unregistered it again right away.
           (update-app-db attach-effect task effect-key)))))
 
 (defn- unregister-by-effects
@@ -501,9 +485,6 @@
    effects))
 
 (def ^{:private true, :rf/reg-cofx ::uuid} uuid-cofx
-  ;; WATCHOUT: A coeffect handler receives the coeffects map and must
-  ;; return it. Returning the bare value replaces the whole map, and the
-  ;; next `(update context :coeffects dissoc ,,,)` dies on it.
   (rf/reg-cofx ::uuid
     (fn [coeffects]
       (assoc coeffects ::uuid (random-uuid)))))
