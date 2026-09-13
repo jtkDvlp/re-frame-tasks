@@ -214,10 +214,11 @@
           (done))))))
 
 (deftest as-task-works-as-a-global-interceptor
-  ;; NOTE: `as-task` returns a chain -- it needs the `::uuid` coeffect
-  ;; alongside the interceptor proper. `reg-global-interceptor` takes one
-  ;; at a time, so the chain goes in element by element. Handing it the
-  ;; chain registers nothing and says nothing, which is what this guards.
+  ;; NOTE: `as-task` returns a chain, even where it holds a single
+  ;; interceptor -- the sugar arguments add more. `reg-global-interceptor`
+  ;; takes one at a time, so the chain goes in element by element. Handing
+  ;; it the chain registers nothing and says nothing, which is what this
+  ;; guards.
   (async done
     (tasks/reg-completion-keys-for-effect ::probe-fx :on-success)
     (rf/reg-fx ::probe-fx (constantly nil))
@@ -231,8 +232,7 @@
       (rf/dispatch-sync [::globally-tracked])
       (is (true? (tasks/running? @rf-db/app-db :global)))
       (finally
-        (run! rf/clear-global-interceptor
-              [:coeffects :jtk-dvlp.re-frame.tasks/as-task])
+        (rf/clear-global-interceptor :jtk-dvlp.re-frame.tasks/as-task)
         (when-queue-drained done)))))
 
 
@@ -326,7 +326,6 @@
 
     (is (= [:jtk-dvlp.re-frame.tasks/wait-for
             :jtk-dvlp.re-frame.tasks/debounce
-            :coeffects
             :jtk-dvlp.re-frame.tasks/as-task]
            (mapv :id chain))
         "the sugar arguments prepend their interceptors, in order")))
