@@ -484,11 +484,6 @@
    context
    effects))
 
-(def ^{:private true, :rf/reg-cofx ::uuid} uuid-cofx
-  (rf/reg-cofx ::uuid
-    (fn [coeffects]
-      (assoc coeffects ::uuid (random-uuid)))))
-
 (defn as-task
   "Creates an interceptor to mark an event and its effects as task. Also see `wait-for` to wait for task.
    Give it a name of the task or map with at least a `:name` key or nil / nothing to use the event name.
@@ -529,8 +524,7 @@
      (conj (debounce debounce-ms))
 
      :always
-     (into [(rf/inject-cofx ::uuid)
-            (rf/->interceptor
+     (into [(rf/->interceptor
              :id ::as-task
 
              :after
@@ -547,14 +541,12 @@
                          (normalize-task)
                          (merge (interceptor/get-effect context ::task))
                          (assoc ::event (-get-original-event context))
-                         (assoc ::id (interceptor/get-coeffect context ::uuid)))
+                         (assoc ::id (random-uuid)))
 
                      context-with-task
                      (-> context
                          ;; NOTE: ::task effect is only to carry task data
                          (update :effects dissoc ::task)
-                         ;; NOTE: ::uuid coeffect is only to generate an task-id
-                         (update :coeffects dissoc ::uuid)
                          (update-app-db register task)
                          (unregister-by-effects task effects))
 
