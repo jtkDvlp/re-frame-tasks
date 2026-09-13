@@ -422,10 +422,15 @@
 (def ^{:private true, :rf/reg-event ::unregister-and-dispatch-original} unregister-and-dispatch-original-event
   (rf/reg-event-fx ::unregister-and-dispatch-original
     (fn [{:keys [db]} [_ task effect original-event]]
+      ;; WATCHOUT: The task travels in the event vector as the snapshot
+      ;; taken before its effects were attached, so it never carries
+      ;; `::effects`. What is still outstanding has to come from app-db.
       (let [task-completed?
-            (-> task
+            (-> db
+                (get-task task)
                 (::effects)
-                (= #{effect}))]
+                (disj effect)
+                (empty?))]
 
         {:db
          (unattach-effect db task effect)
@@ -460,7 +465,11 @@
   [effect effect-key completion-keys task]
   (reduce
    (fn [effect completion-key]
-     (update effect completion-key unregister-by-effect-completion-key effect-key completion-key task))
+     ;; WATCHOUT: The helper does the `update` on the effect map itself.
+     ;; Wrapping it in another `update` handed it the completion event
+     ;; vector instead, which then failed on a keyword index.
+     (unregister-by-effect-completion-key
+      effect effect-key completion-key task))
    effect
    completion-keys))
 
@@ -474,7 +483,11 @@
        (contains-effect? context effect-key)
        (some? completion-keys))
       (-> (update-effect effect-key unregister-by-effect-completion-keys effect-key completion-keys task)
-          (update-app-db attach-effect effect-key)))))
+          ;; WATCHOUT: `attach-effect` needs the task. Without it the
+          ;; effect was recorded under the effect key as if that were a
+          ;; task id, the task itself kept an empty `::effects`, and
+          ;; `as-task` unregistered it again right away.
+          (update-app-db attach-effect task effect-key)))))
 
 (defn- unregister-by-effects
   [context task effects]
@@ -485,9 +498,12 @@
    effects))
 
 (def ^{:private true, :rf/reg-cofx ::uuid} uuid-cofx
+  ;; WATCHOUT: A coeffect handler receives the coeffects map and must
+  ;; return it. Returning the bare value replaces the whole map, and the
+  ;; next `(update context :coeffects dissoc ,,,)` dies on it.
   (rf/reg-cofx ::uuid
-    (fn []
-      (random-uuid))))
+    (fn [coeffects]
+      (assoc coeffects ::uuid (random-uuid)))))
 
 (defn as-task
   "Creates an interceptor to mark an event and its effects as task. Also see `wait-for` to wait for task.
@@ -516,15 +532,20 @@
    (as-task name-or-task effects wait-for-tasks nil))
 
   ([name-or-task effects wait-for-tasks debounce-ms]
+   ;; WATCHOUT: `into`, not `conj`. Both branches add a collection of
+   ;; interceptors, and conj-ing one nests it. re-frame flattens an event's
+   ;; interceptor chain, so nesting went unnoticed there -- but
+   ;; `reg-global-interceptor` takes one interceptor at a time and reads
+   ;; `:id` off what it gets, so it silently registered nothing.
    (cond-> []
      (some? wait-for-tasks)
-     (conj (wait-for wait-for-tasks))
+     (into (wait-for wait-for-tasks))
 
      (some? debounce-ms)
      (conj (debounce debounce-ms))
 
      :always
-     (conj [(rf/inject-cofx ::uuid)
+     (into [(rf/inject-cofx ::uuid)
             (rf/->interceptor
              :id ::as-task
 
