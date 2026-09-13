@@ -175,8 +175,11 @@
 (defn get-task-by-name
   "Gets task in app-db via `name`. Can return nil."
   [db name]
+  ;; WATCHOUT: `some` yields the predicate's result, so a plain
+  ;; `#(= (:name %) name)` returns `true` rather than the task.
   (->> (get-tasks db)
-       (some #(= (:name %) name))))
+       (filter #(= (:name %) name))
+       (first)))
 
 (defn get-tasks
   "Gets all tasks in app-db. Can return nil. Also see subscription `::tasks`."
