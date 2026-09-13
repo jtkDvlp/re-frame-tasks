@@ -45,11 +45,14 @@
     ["target"]}
 
    ;; NOTE: The library itself declares no ClojureScript dependency -- a
-   ;; consumer brings their own. The test run needs a compiler, so this
-   ;; profile pins the one the dev build resolves to.
+   ;; consumer brings their own. The test run needs a compiler.
+   ;; WATCHOUT: Not the 1.10.773 that figwheel-main drags in. re-frame
+   ;; 1.4.7 calls `update-vals` in `re-frame.flow.alpha`, which arrived
+   ;; in 1.11 -- against the older compiler every build warns about an
+   ;; undeclared var.
    :test
    {:dependencies
-    [[org.clojure/clojurescript "1.10.773"]]
+    [[org.clojure/clojurescript "1.12.145"]]
 
     :source-paths
     ["test"]}
