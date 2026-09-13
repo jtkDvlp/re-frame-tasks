@@ -1,6 +1,6 @@
 [![Clojars Project](https://img.shields.io/clojars/v/jtk-dvlp/re-frame-tasks.svg)](https://clojars.org/jtk-dvlp/re-frame-tasks)
 [![cljdoc badge](https://cljdoc.org/badge/jtk-dvlp/re-frame-tasks)](https://cljdoc.org/d/jtk-dvlp/re-frame-tasks/CURRENT)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/jtkDvlp/re-frame-tasks/blob/master/LICENSE)
+[![License: EPL-2.0](https://img.shields.io/badge/License-EPL_2.0-red.svg)](https://github.com/jtkDvlp/re-frame-tasks/blob/master/LICENSE)
 
 # Tasks interceptor / helpers for re-frame
 
