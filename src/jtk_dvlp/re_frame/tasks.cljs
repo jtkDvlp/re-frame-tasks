@@ -79,18 +79,21 @@
 (defn- create-timeout!
   [f ms]
   (log/trace "creating timeout" {:f f, :ms ms})
-  {:ms ms, :f f, :t (js-invoke "setTimeout" f ms)})
+  ;; WATCHOUT: `js-invoke` calls a method *on an object*; given the bare
+  ;; name it treated the string as the object and blew up. `js/setTimeout`
+  ;; resolves in both the browser and node.
+  {:ms ms, :f f, :t (js/setTimeout f ms)})
 
 (defn- cancel-timeout!
   [timeout]
   (log/trace "canceling timeout" timeout)
-  (js-invoke "clearTimeout" (:t timeout))
+  (js/clearTimeout (:t timeout))
   nil)
 
 (defn- flush-timeout!
   [timeout]
   (log/trace "flushing timeout" timeout)
-  (js-invoke "clearTimeout" (:t timeout))
+  (js/clearTimeout (:t timeout))
   ((:f timeout))
   nil)
 
