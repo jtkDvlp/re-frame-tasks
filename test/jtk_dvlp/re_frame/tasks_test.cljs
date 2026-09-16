@@ -214,11 +214,6 @@
           (done))))))
 
 (deftest as-task-works-as-a-global-interceptor
-  ;; NOTE: `as-task` returns a chain, even where it holds a single
-  ;; interceptor -- the sugar arguments add more. `reg-global-interceptor`
-  ;; takes one at a time, so the chain goes in element by element. Handing
-  ;; it the chain registers nothing and says nothing, which is what this
-  ;; guards.
   (async done
     (tasks/reg-completion-keys-for-effect ::probe-fx :on-success)
     (rf/reg-fx ::probe-fx (constantly nil))
@@ -226,7 +221,7 @@
     (rf/reg-event-fx ::globally-tracked
       (fn [_ _] {::probe-fx {:on-success [::irrelevant]}}))
 
-    (run! rf/reg-global-interceptor (tasks/as-task :global [::probe-fx]))
+    (rf/reg-global-interceptor (tasks/as-task :global [::probe-fx]))
 
     (try
       (rf/dispatch-sync [::globally-tracked])
@@ -312,23 +307,52 @@
               (is (= 1 @runs) "the effect flushes the pending dispatch")
               (done))))))))
 
-(deftest wait-for-takes-a-debounce-window
-  (let [chain
-        (tasks/wait-for :any debounce-window-ms)]
+(deftest wait-for-still-waits-when-given-a-debounce-window
+  ;; The sugar folds a second interceptor into the one `wait-for` returns.
+  ;; Both behaviours have to survive that: debouncing must not cost the
+  ;; waiting, which is what an over-eager composition silently does.
+  (async done
+    (let [effect-args
+          (atom nil)]
 
-    (is (= [:jtk-dvlp.re-frame.tasks/wait-for
-            :jtk-dvlp.re-frame.tasks/debounce]
-           (mapv :id chain)))))
+      (tasks/reg-completion-keys-for-effect ::probe-fx :on-success)
+      (rf/reg-fx ::probe-fx (partial reset! effect-args))
+
+      (rf/reg-event-fx ::blocker
+        [(tasks/as-task :blocker [::probe-fx])]
+        (fn [_ _] {::probe-fx {:on-success [::irrelevant]}}))
+
+      (rf/reg-event-db ::irrelevant (fn [db _] db))
+
+      (rf/reg-event-db ::debounced-follow-up
+        [(tasks/wait-for :blocker debounce-window-ms)]
+        (fn [db _] (assoc db ::followed-up? true)))
+
+      (rf/dispatch-sync [::blocker])
+      (rf/dispatch [::debounced-follow-up])
+
+      (js/setTimeout
+       (fn []
+         (is (nil? (::followed-up? @rf-db/app-db))
+             "the debounce window passed, but the task still blocks")
+
+         (rf/dispatch (:on-success @effect-args))
+
+         (when-queue-drained
+          (fn []
+            (is (true? (::followed-up? @rf-db/app-db))
+                "and it runs once the task completes")
+            (done))))
+       (* 5 debounce-window-ms)))))
 
 (deftest as-task-takes-tasks-to-wait-for-and-a-debounce-window
-  (let [chain
+  (let [interceptor
         (tasks/as-task :search [::probe-fx] :any debounce-window-ms)]
 
-    (is (= [:jtk-dvlp.re-frame.tasks/wait-for
-            :jtk-dvlp.re-frame.tasks/debounce
-            :jtk-dvlp.re-frame.tasks/as-task]
-           (mapv :id chain))
-        "the sugar arguments prepend their interceptors, in order")))
+    (is (= :jtk-dvlp.re-frame.tasks/as-task (:id interceptor))
+        "the sugar folds into one interceptor")
+    (is (some? (:before interceptor)) "carrying the folded-in before")
+    (is (some? (:after interceptor)) "and its own after")))
 
 (deftest wait-for-can-be-ignored-per-event
   (async done
@@ -357,3 +381,4 @@
           "the named task is ignored for this one event")
 
       (when-queue-drained done))))
+

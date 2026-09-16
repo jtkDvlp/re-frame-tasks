@@ -32,17 +32,22 @@
          inner-after-fn :after}
         inner-cofx]
 
+    ;; WATCHOUT: Every test of a `cond->` that holds is applied. A clause
+    ;; for "inner only" therefore has to exclude the case the clause above
+    ;; it already handled -- otherwise the composition is built and then
+    ;; overwritten by the inner function alone, and the outer one is gone
+    ;; without a word.
     (cond-> outer-cofx
       (and (some? inner-before-fn) (some? outer-before-fn))
       (update :before #(comp %2 %1) inner-before-fn)
 
-      (and (some? inner-before-fn))
+      (and (some? inner-before-fn) (nil? outer-before-fn))
       (assoc :before inner-before-fn)
 
       (and (some? inner-after-fn) (some? outer-after-fn))
       (update :after #(comp %2 %1) inner-after-fn)
 
-      (and (some? inner-after-fn))
+      (and (some? inner-after-fn) (nil? outer-after-fn))
       (assoc :after inner-after-fn))))
 
 
