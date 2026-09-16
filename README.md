@@ -91,16 +91,12 @@ Register tasks with different names for different http-requests.
 Register every `http-xhrio` effect call as task with name
 `:http-request`.
 
-`as-task` returns a *chain* of interceptors, because it needs a coeffect
-alongside the interceptor proper. `reg-global-interceptor` takes one
-interceptor at a time, so register them with `run!`.
-
 ```clojure
 (tasks/reg-completion-keys-for-effect
   :http-xhrio :on-success :on-failure)
 
-(run! rf/reg-global-interceptor
-      (tasks/as-task :http-request [:http-xhrio]))
+(rf/reg-global-interceptor
+  (tasks/as-task :http-request [:http-xhrio]))
 
 (re-frame/reg-event-fx :load-data-x
   (fn [_ [_ val]]
@@ -136,8 +132,8 @@ Fortunately you got some helpers for that.
 (tasks/reg-completion-keys-for-effect
   :remote-request :on-success :on-failure)
 
-(run! rf/reg-global-interceptor
-      (tasks/as-task :remote-request [:remote-request]))
+(rf/reg-global-interceptor
+  (tasks/as-task :remote-request [:remote-request]))
 ```
 
 #### Visualise running tasks
@@ -217,6 +213,62 @@ waiting out the window:
 {::tasks/flush-debounce {:dispatch [:search term]}}
 ```
 
+#### Suspending a run and picking it up later
+
+Some interceptors end an event run early and run it again later -- an
+async coeffect waiting on a request, say. Nothing is in flight in
+between, so a task would be completed the moment that first run ends, and
+the wait it is meant to show would never appear.
+
+Such an interceptor keeps the task by taking a **claim** on it. A task is
+done once its last claim is given back; a monitored effect is simply one
+of those claims. Whoever claims, releases -- in every outcome, the
+failing one included.
+
+```clojure
+(rf/->interceptor
+ :id ::my-suspending-interceptor
+
+ :before
+ (fn [context]
+   (let [task-id (tasks/task-id context)
+         event (rf/get-coeffect context :original-event)]
+
+     (go
+       (let [_result (<! (some-request))]
+         ;; the continuation presents the token it was given
+         (rf/dispatch (tasks/resume event task-id))))
+
+     (-> context
+         (tasks/claim ::my-claim)
+         (update :queue empty)))))
+```
+
+`as-task` picks that same task up again instead of opening a second one,
+and `wait-for` lets the event past the very task it continues. The
+continuing run gives the claim back:
+
+```clojure
+(tasks/release context ::my-claim)
+```
+
+Where there is no run left to release in -- an error path -- there is an
+event:
+
+```clojure
+(rf/dispatch [::tasks/release task-id ::my-claim])
+```
+
+Two rules make this work:
+
+* **`as-task` has to come before the claiming interceptor.** It mints the
+  token in its `:before`, so whoever runs earlier finds none. `claim`
+  says so rather than inventing a task under a missing id.
+* **`claim` and `release` note their intent in the context**, they never
+  write to app-db. re-frame hands the event handler the db from the
+  *coeffects*, so whatever an earlier `:before` put into the `:db` effect
+  is gone the moment the handler runs.
+
 ## Upgrading from 2.x
 
 3.0.0 is a breaking release.
@@ -224,7 +276,7 @@ waiting out the window:
 | What changed | What to do |
 |---|---|
 | `set-completion-keys-per-effect!`, `merge-completion-keys-per-effect!` and `add-completion-keys-for-effect!` are gone | use `reg-completion-keys-for-effect`, one call per effect: `(tasks/reg-completion-keys-for-effect :http-xhrio :on-success :on-failure)` |
-| `as-task` and `wait-for` return a chain of interceptors, not a single one | inside an event's interceptor vector nothing changes -- re-frame flattens it. For `reg-global-interceptor` use `(run! rf/reg-global-interceptor (tasks/as-task ,,,))` |
+| A task carries what it still waits for under `::tasks/claims`, not `::effects` | the key holds the same monitored effects, plus claims taken by other interceptors -- see "Suspending a run" above |
 | The interceptor ids are namespaced now: `::as-task`, `::wait-for` | adjust anything that removes or replaces them by id |
 | A task carries its event under `::tasks/event` | it used to be `:event` |
 | `::unregister-and-dispatch-original` is an event only; the effect of the same name is gone, and the event vector carries the effect key before the original event | use the `*-original-event` helpers instead of reading the vector by index |
