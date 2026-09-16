@@ -382,3 +382,147 @@
 
       (when-queue-drained done))))
 
+
+;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Claims
+
+(def ^:private suspender-claim
+  "What the stand-in below calls its claim. A real suspending interceptor
+   uses something unique per suspension, so two of them on one event do
+   not collapse into a single claim."
+  ::suspender)
+
+(defn- suspender
+  "Stands in for an interceptor that ends the run early and continues it
+   later -- an async coeffect, typically. Records what it would need to
+   come back with, claims the task and aborts."
+  [!handover]
+  (rf/->interceptor
+   :id ::suspender
+
+   :before
+   (fn [context]
+     (reset! !handover
+             {:task-id (tasks/task-id context)
+              :event (get-in context [:coeffects :original-event])})
+     (-> context
+         (tasks/claim suspender-claim)
+         (update :queue empty)))))
+
+(defn- resumer
+  "The other half: a run that gives the claim back."
+  []
+  (rf/->interceptor
+   :id ::resumer
+   :before #(tasks/release % suspender-claim)))
+
+(deftest a-claimed-task-outlives-a-run-without-effects
+  (let [!handover
+        (atom nil)]
+
+    (rf/reg-event-db ::suspends
+      [(tasks/as-task :suspendable) (suspender !handover)]
+      (fn [db _] db))
+
+    (rf/dispatch-sync [::suspends])
+
+    (testing "the run ended without effects, yet the task stands"
+      (is (true? (tasks/running? @rf-db/app-db :suspendable))))
+
+    (testing "and the claimer got the token it needs to come back"
+      (is (some? (:task-id @!handover)))
+      (is (= (:task-id @!handover)
+             (-> @rf-db/app-db
+                 (tasks/get-task-by-name :suspendable)
+                 (::tasks/id)))))))
+
+(deftest resuming-picks-the-task-up-instead-of-opening-a-second
+  (let [!handover
+        (atom nil)]
+
+    (rf/reg-event-db ::suspends-once
+      [(tasks/as-task :suspendable) (suspender !handover)]
+      (fn [db _] db))
+
+    (rf/dispatch-sync [::suspends-once])
+
+    (let [{:keys [task-id event]}
+          @!handover]
+
+      ;; The continuation runs the same event again, now releasing rather
+      ;; than claiming -- as a real one would, having its data in hand.
+      (rf/reg-event-db ::suspends-once
+        [(tasks/as-task :suspendable) (resumer)]
+        (fn [db _] db))
+
+      (rf/dispatch-sync (tasks/resume event task-id))
+
+      (testing "no second task was opened"
+        (is (>= 1 (count (tasks/get-tasks @rf-db/app-db)))))
+
+      (testing "and the released task is done"
+        (is (false? (tasks/running? @rf-db/app-db :suspendable)))))))
+
+(deftest a-claim-can-be-given-back-from-outside-a-run
+  (async done
+    (let [!handover
+          (atom nil)]
+
+      (rf/reg-event-db ::suspends-and-fails
+        [(tasks/as-task :suspendable) (suspender !handover)]
+        (fn [db _] db))
+
+      (rf/dispatch-sync [::suspends-and-fails])
+      (is (true? (tasks/running? @rf-db/app-db :suspendable)))
+
+      ;; The error path has no run to hand the claim back in.
+      (rf/dispatch [::tasks/release (:task-id @!handover) suspender-claim])
+
+      (when-queue-drained
+       (fn []
+         (is (false? (tasks/running? @rf-db/app-db :suspendable))
+             "releasing the last claim completes the task")
+         (done))))))
+
+(deftest wait-for-lets-the-continuation-past-its-own-task
+  (let [!handover
+        (atom nil)]
+
+    (rf/reg-event-db ::suspends-and-blocks
+      [(tasks/as-task :suspendable) (suspender !handover)]
+      (fn [db _] db))
+
+    (rf/reg-event-db ::waits
+      [(tasks/wait-for :suspendable)]
+      (fn [db _] (assoc db ::waited? true)))
+
+    (rf/dispatch-sync [::suspends-and-blocks])
+
+    (testing "an unrelated event waits for the suspended task"
+      (rf/dispatch-sync [::waits])
+      (is (nil? (::waited? @rf-db/app-db))))
+
+    (testing "its own continuation does not"
+      (rf/reg-event-db ::suspends-and-blocks
+        [(tasks/as-task :suspendable) (resumer)]
+        (fn [db _] (assoc db ::continued? true)))
+
+      (rf/dispatch-sync
+       (tasks/resume (:event @!handover) (:task-id @!handover)))
+
+      (is (true? (::continued? @rf-db/app-db))))))
+
+(deftest claiming-without-a-task-changes-nothing
+  ;; The claim has to come after `as-task`, otherwise there is no task yet.
+  ;; Getting that wrong must not invent one under a nil id.
+  (let [!handover
+        (atom nil)]
+
+    (rf/reg-event-db ::claims-too-early
+      [(suspender !handover) (tasks/as-task :never-claimed)]
+      (fn [db _] db))
+
+    (rf/dispatch-sync [::claims-too-early])
+
+    (is (nil? (:task-id @!handover)))
+    (is (empty? (tasks/get-tasks @rf-db/app-db)))))

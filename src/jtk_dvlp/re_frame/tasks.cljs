@@ -249,13 +249,23 @@
   [db id-or-task event]
   (update-in db [::db :tasks (->id id-or-task) ::after-events] (fnil conj []) event))
 
-(defn- attach-effect
-  [db id-or-task effect]
-  (update-in db [::db :tasks (->id id-or-task) ::effects] (fnil conj #{}) effect))
+(defn- claim-in-db
+  [db id-or-task claim-key]
+  (update-in db [::db :tasks (->id id-or-task) ::claims]
+             (fnil conj #{}) claim-key))
 
-(defn- unattach-effect
-  [db id-or-task effect]
-  (update-in db [::db :tasks (->id id-or-task) ::effects] (fnil disj #{}) effect))
+(defn- release-in-db
+  [db id-or-task claim-key]
+  (update-in db [::db :tasks (->id id-or-task) ::claims]
+             (fnil disj #{}) claim-key))
+
+(defn- claims
+  [db id-or-task]
+  (-> db (get-task id-or-task) (::claims)))
+
+(defn- unclaimed?
+  [db id-or-task]
+  (-> db (claims id-or-task) (empty?)))
 
 (defn register
   "Registers task within app-db. Also see event `::register`.
@@ -289,6 +299,90 @@
 
          :dispatch-n
          (vec after-events)}))))
+
+
+(defn task-id
+  "Id of the task this event run belongs to, or nil when the run carries
+   none. Hand it to whatever will continue the run later, see `resume`."
+  [context]
+  (::id context))
+
+(defn claim
+  "Keeps the task of this event run registered although the run is about to
+   end without effects to wait for -- because the caller takes over and
+   will continue it later.
+
+   `claim-key` identifies the claim and has to be unique among the claims
+   of one task; an id the caller already holds per suspension does nicely.
+   Give the same key back to `release`.
+
+   Whoever claims, releases -- in every outcome. A claim that is never
+   given back leaves the task registered for good, and anything waiting
+   for it waits for good. Where there is no run left to release in, an
+   error path typically, there is the event `::release`."
+  [context claim-key]
+  (if (some? (task-id context))
+    (do
+      (log/trace "claiming task"
+        {:task-id (task-id context), :claim claim-key})
+      ;; WATCHOUT: Noted in the context, not written to app-db. re-frame
+      ;; builds the `:db` effect by handing the event handler the db from
+      ;; the *coeffects*, so anything an earlier `:before` wrote there is
+      ;; overwritten the moment the handler runs. `as-task` applies what is
+      ;; noted here in its `:after`, which is past that point.
+      (update context ::claimed (fnil conj #{}) claim-key))
+    (do
+      ;; There is no task to claim when `as-task` did not run before this
+      ;; interceptor. Silently building one under a nil id would hide the
+      ;; wrong order until someone wonders why nothing is ever waited for.
+      (log/warn "no task to claim -- is `as-task` missing or ordered after"
+        {:claim claim-key})
+      context)))
+
+(defn release
+  "Gives back a claim taken with `claim`, from within an event run. Use the
+   event `::release` where there is no run to hand it back in."
+  [context claim-key]
+  (if (some? (task-id context))
+    (do
+      (log/trace "releasing claim"
+        {:task-id (task-id context), :claim claim-key})
+      (update context ::released (fnil conj #{}) claim-key))
+    (do
+      (log/warn "no task to release a claim of" {:claim claim-key})
+      context)))
+
+(defn- apply-noted-claims
+  [context task]
+  (let [{:keys [::claimed ::released]}
+        context]
+
+    (update task ::claims
+            (fn [claims]
+              (reduce disj (into (or claims #{}) claimed) released)))))
+
+(defn resume
+  "Marks `event` as the continuation of the task `task-id`, so dispatching
+   it picks that task up again instead of opening a second one. `wait-for`
+   lets such an event past the very task it continues."
+  [event task-id]
+  (vary-meta event assoc ::resume task-id))
+
+(defn- resumed-task-id
+  [event]
+  (-> event (meta) (::resume)))
+
+(def ^{:rf/reg-event ::release} release-event
+  "re-frame event to give back a claim outside of an event run, see
+   `claim`. Completes the task when it was the last one."
+  (rf/reg-event-fx ::release
+    (fn [{:keys [db]} [_ id-or-task claim-key]]
+      (let [db
+            (release-in-db db id-or-task claim-key)]
+
+        (cond-> {:db db}
+          (unclaimed? db id-or-task)
+          (assoc :dispatch [::unregister id-or-task]))))))
 
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -420,6 +514,13 @@
                   (contains? events-to-pass original-event-name)
                   context
 
+                  ;; An event that continues one of the blocking tasks is
+                  ;; that task, not a competitor for it.
+                  (->> blocking-tasks
+                       (some #(= (::id %) (resumed-task-id original-event)))
+                       (and (resumed-task-id original-event)))
+                  context
+
                   (not (empty? blocking-tasks))
                   (-> context
                       (abort-original-event)
@@ -451,15 +552,14 @@
 (def ^{:private true, :rf/reg-event ::unregister-and-dispatch-original} unregister-and-dispatch-original-event
   (rf/reg-event-fx ::unregister-and-dispatch-original
     (fn [{:keys [db]} [_ task effect original-event]]
-      (let [task-completed?
-            (-> db
-                (get-task task)
-                (::effects)
-                (disj effect)
-                (empty?))]
+      (let [db
+            (release-in-db db task effect)
+
+            task-completed?
+            (unclaimed? db task)]
 
         {:db
-         (unattach-effect db task effect)
+         db
 
          :fx
          (cond-> []
@@ -506,7 +606,7 @@
        (contains-effect? context effect-key)
        (some? completion-keys))
       (-> (update-effect effect-key unregister-by-effect-completion-keys effect-key completion-keys task)
-          (update-app-db attach-effect task effect-key)))))
+          (update-app-db claim-in-db task effect-key)))))
 
 (defn- unregister-by-effects
   [context task effects]
@@ -547,6 +647,18 @@
          (rf/->interceptor
           :id ::as-task
 
+          ;; The id has to exist before anything can claim the task: a
+          ;; claiming interceptor runs its `:before` while this one is
+          ;; still only holding an id, and `:after` is where the task is
+          ;; actually written.
+          :before
+          (fn [context]
+            (let [event
+                  (-get-original-event context)]
+
+              (assoc context ::id
+                     (or (resumed-task-id event) (random-uuid)))))
+
           :after
           (fn [context]
             (log/trace "creating event as task"
@@ -555,31 +667,38 @@
                :effects effects
                :wait-for-tasks wait-for-tasks
                :debounce-ms debounce-ms})
-            (let [task
-                  (-> name-or-task
-                      (or (task-name-by-original-event context))
-                      (normalize-task)
-                      (merge (interceptor/get-effect context ::task))
-                      (assoc ::event (-get-original-event context))
-                      (assoc ::id (random-uuid)))
+            (let [id
+                  (task-id context)
+
+                  task
+                  (->> (-> name-or-task
+                           (or (task-name-by-original-event context))
+                           (normalize-task)
+                           (merge (interceptor/get-effect context ::task))
+                           (assoc ::event (-get-original-event context))
+                           (assoc ::id id))
+                       ;; NOTE: What is already under this id comes first:
+                       ;; the state of the run this one continues.
+                       (merge (-> context (get-app-db) (get-task id)))
+                       (apply-noted-claims context))
 
                   context-with-task
                   (-> context
                       ;; NOTE: ::task effect is only to carry task data
                       (update :effects dissoc ::task)
+                      ;; NOTE: this interceptor's own scratch space
+                      (dissoc ::id ::claimed ::released)
                       (update-app-db register task)
                       (unregister-by-effects task effects))
 
-                  no-unregister-effects?
+                  completed?
                   (-> context-with-task
                       (get-app-db)
-                      (get-task task)
-                      (::effects)
-                      (empty?))]
+                      (unclaimed? task))]
 
               (cond-> context-with-task
-                ;; NOTE: no effects to unregister task, then unregister immediately
-                no-unregister-effects?
+                ;; NOTE: nothing left to wait for, so the task is done
+                completed?
                 (update-app-db unregister task)))))]
 
      (cond->> as-task
