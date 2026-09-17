@@ -55,6 +55,8 @@ built and tested against:
 
 * `org.clojure/clojure`
 * `re-frame`
+* `reagent` -- re-frame declares it `provided` itself, so it does not
+  arrive with re-frame
 * `com.taoensso/timbre`
 
 ### Usage
@@ -290,7 +292,7 @@ New in 3.0.0 and purely additive: the `debounce` interceptor, the
 ## Development
 
 ```
-lein with-profile +test run -m cljs.main \
+lein with-profile +test,-dev run -m cljs.main \
   --target node \
   --output-dir target/test \
   --output-to target/test/main.js \
