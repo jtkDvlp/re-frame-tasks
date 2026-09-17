@@ -43,10 +43,14 @@
 
   :profiles
   {:provided
+   ;; WATCHOUT: `reagent` belongs here although this library never calls
+   ;; it. re-frame declares it `provided` itself, so it does not arrive
+   ;; transitively -- without it `re-frame.core` does not even compile.
    {:dependencies
     [[org.clojure/clojure "1.12.5"]
      [com.taoensso/timbre "6.8.0"]
-     [re-frame "1.4.7"]]}
+     [re-frame "1.4.7"]
+     [reagent "2.0.1"]]}
 
    :dev
    {:dependencies
@@ -75,7 +79,11 @@
    ;; undeclared var.
    :test
    {:dependencies
-    [[org.clojure/clojurescript "1.12.145"]]
+    ;; NOTE: React is a build-time need of this compile, not a contract
+    ;; with consumers -- they bring their own, through cljsjs or npm.
+    [[org.clojure/clojurescript "1.12.145"]
+     [cljsjs/react "18.3.1-1"]
+     [cljsjs/react-dom "18.3.1-1"]]
 
     :source-paths
     ["test"]}
