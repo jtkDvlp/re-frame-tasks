@@ -2,7 +2,7 @@
 ;; Anmerkung `x-release-please-version` ist das, woran es die Zeile
 ;; findet -- ohne sie wird nur das Changelog fortgeschrieben und das
 ;; Paket trägt weiter die alte Zahl.
-(defproject jtk-dvlp/re-frame-tasks "2.2.0" ; x-release-please-version
+(defproject jtk-dvlp/re-frame-tasks "2.3.0" ; x-release-please-version
   :description
   "A re-frame interceptor and helpers to register / unregister (background-)tasks"
 
