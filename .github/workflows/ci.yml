@@ -1,0 +1,52 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  # NOTE: Die Version ergibt sich aus den Commit-Nachrichten. Rutscht ein
+  # Commit ohne Conventional-Commits-Betreff auf den Hauptzweig, fehlt er
+  # im Changelog und die nächste Version fällt womöglich zu niedrig aus.
+  # PRs werden gemergt statt gesquasht, also wird jeder einzelne Commit
+  # geprüft, nicht nur der PR-Titel.
+  commit-messages:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check conventional commits
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          types='build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test'
+          pattern="^($types)(\([^)]+\))?!?: .+"
+          failed=0
+
+          # WATCHOUT: --no-merges ist Absicht. Der Betreff eines
+          # Merge-Commits stammt von git und folgt der Konvention nie.
+          while IFS= read -r subject; do
+            [ -z "$subject" ] && continue
+            if ! printf '%s' "$subject" | grep -Eq "$pattern"; then
+              echo "::error::Kein Conventional Commit: $subject"
+              failed=1
+            fi
+          done < <(git log --no-merges --format=%s "$BASE_SHA..$HEAD_SHA")
+
+          if [ "$failed" -ne 0 ]; then
+            echo "Format: <typ>[(<bereich>)][!]: <beschreibung>"
+            echo "Typen: $types"
+            exit 1
+          fi
+
+          echo "Alle Commit-Nachrichten folgen Conventional Commits."
