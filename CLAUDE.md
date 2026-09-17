@@ -47,14 +47,6 @@ Maschine.** Nicht von Hand editieren. `version.txt` legt release-please
 beim ersten Release selbst an; gelesen wird sie von niemandem — die
 Version, die zählt, steht in `project.clj`.
 
-**WATCHOUT: `last-release-sha` in `release-please-config.json` zeigt auf
-`8ed94e1`.** Das ist der Stand, dessen Code als `2.2.0` veröffentlicht
-wurde. Der Tag `2.2.0` selbst hängt an einem reinen Versions-Bump auf dem
-alten Release-Zweig `b2.2.0` und ist von `master` aus nicht erreichbar —
-ohne die Angabe würde release-please die gesamte Historie durchsehen. Der
-Eintrag darf verschwinden, sobald ein Release über den hier beschriebenen
-Weg entstanden ist.
-
 ## Tests
 
 **Es gibt noch keine Unit-Tests.** Die CI prüft bislang nur, dass die
