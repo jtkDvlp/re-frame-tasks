@@ -25,6 +25,20 @@ Historie nicht wieder und finge bei `1.0.0` an. Die älteren `v1.0.0`- und
 `include-v-in-release-name: false` steht deshalb daneben. Ohne sie
 entsteht ein Tag `2.3.0` mit einem Release namens `v2.3.0` darüber.
 
+**WATCHOUT: Auch der Paketname landet sonst im Tag.** In einer
+Manifest-Konfiguration stellt release-please die Komponente voran, der
+erste Release-PR hier hieß entsprechend
+`jtk-dvlp/re-frame-tasks-2.2.1`. Dagegen steht
+`include-component-in-tag: false`. Das Repo enthält genau ein Paket, die
+Komponente trennt hier also nichts.
+
+**WATCHOUT: Sichtbar im Changelog heißt versionswirksam.** Deshalb
+stehen in `changelog-sections` alle Typen außer `feat` und `fix` auf
+`hidden: true`. release-please kennt keinen Typ, der im Changelog steht,
+aber die Version in Ruhe lässt: Sobald ein Commit sichtbar ist, wird
+mindestens eine Patch-Version daraus. Ein PR, der nur `ci:` oder `docs:`
+enthält, erzeugt jetzt gar keinen Release-PR — genau so ist es gewollt.
+
 **`.release-please-manifest.json` und `version.txt` gehören der
 Maschine.** Nicht von Hand editieren. `version.txt` legt release-please
 beim ersten Release selbst an; gelesen wird sie von niemandem — die
