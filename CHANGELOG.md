@@ -5,6 +5,10 @@
 
 ### Bug Fixes
 
-* correct the release tag format and the version impact of commit types ([c412cc7](https://github.com/jtkDvlp/re-frame-tasks/commit/c412cc7eec5b84c820b05e6216cca905cd6acace))
-* keep the package name out of the release tag ([d05cb50](https://github.com/jtkDvlp/re-frame-tasks/commit/d05cb501d7ea9f9198689430923598c736bc69d4))
-* stop types without version impact from triggering a release ([d30c802](https://github.com/jtkDvlp/re-frame-tasks/commit/d30c8025c8dc3e98d26a0e8621379b893d9d7e88))
+* let an event that an async coeffect resumes past its own task ([3c32e2f](https://github.com/jtkDvlp/re-frame-tasks/commit/3c32e2f4befa347efb5d792b3cc6eab81b76da3e))
+
+  `wait-for` queued the dispatch that
+  [re-frame-async-coeffects](https://github.com/jtkDvlp/re-frame-async-coeffects)
+  sends once its coeffects resolve -- behind the very task that dispatch
+  belongs to. An event combining `as-task` and `inject-acofx` therefore
+  never ran, and its task never completed.
