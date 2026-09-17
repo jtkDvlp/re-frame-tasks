@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - master
+      # NOTE: The 3.0 work lives on `refactor` without a pull request of
+      # its own. Drop this line once it has landed on master.
+      - refactor
 
 jobs:
   test:

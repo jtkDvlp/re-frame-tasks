@@ -36,32 +36,43 @@ jobs:
           key: m2-${{ hashFiles('project.clj') }}
           restore-keys: m2-
 
-      # WATCHOUT: Es gibt noch keine Unit-Tests. Geprüft wird, dass die
-      # Bibliothek unter :advanced durchkompiliert -- das fängt Analyse-
-      # und Externs-Fehler, die sonst erst den Nutzern der Bibliothek
-      # auffallen. Sobald es Tests gibt, kommen sie hier daneben, nicht
-      # an deren Stelle.
+      # WATCHOUT: `+test,-dev` is the profile set that holds: `:test`
+      # brings the ClojureScript compiler the library itself does not
+      # declare, and dropping `:dev` keeps figwheel and reagent's React
+      # shim out, so the library has to compile against what a consumer
+      # actually gets.
       #
-      # WATCHOUT: `-dev` ist Absicht. Ohne das Profil steht nur da, was
-      # die Bibliothek als Abhängigkeit deklariert -- sonst kompiliert sie
-      # womöglich nur dank einer Dev-Abhängigkeit, die beim Nutzer fehlt.
-      #
-      # WATCHOUT: Der Compiler meldet eine unbekannte Var nur als WARNING
-      # und beendet sich mit 0 (nachgestellt mit einem Aufruf auf eine
-      # nicht existierende Funktion). `:warnings-as-errors` gibt es in
-      # cljs.main nicht, also wird die Ausgabe ausgewertet.
+      # WATCHOUT: The compiler reports an unknown var as a WARNING and
+      # still exits 0 -- `:warnings-as-errors` does not exist in
+      # cljs.main. The output is therefore examined.
       - name: Compile library
         run: |
           set -o pipefail
           log="$(mktemp)"
 
-          lein with-profile -dev run -m cljs.main \
+          lein with-profile +test,-dev run -m cljs.main \
             --optimizations advanced \
             --output-dir target/ci \
             --output-to target/ci/main.js \
             --compile jtk-dvlp.re-frame.tasks 2>&1 | tee "$log"
 
           if grep -E '^WARNING' "$log"; then
-            echo "::error::Der Compiler meldet Warnungen, siehe oben."
+            echo "::error::The compiler reports warnings, see above."
             exit 1
           fi
+
+      # WATCHOUT: Compiled to a file and run with node, not through
+      # `cljs.main --main`. Two things there produce a green job that
+      # tested nothing: `cljs.main` does not pass on the exit code of the
+      # node process it spawns, and the node target only calls `-main`
+      # when `*main-cli-fn*` is set (it is, in the runner).
+      - name: Run tests
+        run: |
+          lein with-profile +test,-dev run -m cljs.main \
+            --target node \
+            --output-dir target/test \
+            --output-to target/test/main.js \
+            --compile-opts '{:main jtk-dvlp.re-frame.test-runner}' \
+            --compile jtk-dvlp.re-frame.test-runner
+
+          node target/test/main.js
