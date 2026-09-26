@@ -512,6 +512,42 @@
 
       (is (true? (::continued? @rf-db/app-db))))))
 
+(deftest a-waiting-event-runs-when-the-continuation-completes-the-task
+  ;; Both halves above pass on their own, and the gap between them cost a
+  ;; silently dropped event: a task held open by a claim collects waiting
+  ;; events, and the run that gives the claim back completes the task in
+  ;; `as-task` itself -- past the event that dispatches what waits.
+  (async done
+    (let [!handover
+          (atom nil)]
+
+      (rf/reg-event-db ::suspends-while-something-waits
+        [(tasks/as-task :suspendable) (suspender !handover)]
+        (fn [db _] db))
+
+      (rf/reg-event-db ::waits-for-the-claim
+        [(tasks/wait-for :suspendable)]
+        (fn [db _] (assoc db ::waited? true)))
+
+      (rf/dispatch-sync [::suspends-while-something-waits])
+      (rf/dispatch-sync [::waits-for-the-claim])
+      (is (nil? (::waited? @rf-db/app-db))
+          "it waits while the claim stands")
+
+      (rf/reg-event-db ::suspends-while-something-waits
+        [(tasks/as-task :suspendable) (resumer)]
+        (fn [db _] db))
+
+      (rf/dispatch-sync
+       (tasks/resume (:event @!handover) (:task-id @!handover)))
+
+      (when-queue-drained
+       (fn []
+         (is (false? (tasks/running? @rf-db/app-db :suspendable)))
+         (is (true? (::waited? @rf-db/app-db))
+             "completing the task in the run releases what waited on it")
+         (done))))))
+
 (deftest claiming-without-a-task-changes-nothing
   ;; The claim has to come after `as-task`, otherwise there is no task yet.
   ;; Getting that wrong must not invent one under a nil id.

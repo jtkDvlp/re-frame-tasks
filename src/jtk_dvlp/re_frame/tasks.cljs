@@ -280,6 +280,11 @@
     (fn [db [_ task]]
       (register db task))))
 
+;; WATCHOUT: This drops the task including its `::after-events`; calling
+;; the events is up to the caller. Both callers here do it -- the event
+;; below via `:dispatch-n`, `as-task` via `complete-task`. A third one
+;; that forgets leaves whatever waited on the task waiting for good, and
+;; nothing says a word.
 (defn unregister
   "Unregisters task within app-db. Also see event `::unregister`.
    Tasks can be used via subscriptions `::tasks` and `::running?`."
@@ -299,6 +304,26 @@
 
          :dispatch-n
          (vec after-events)}))))
+
+(defn- dispatch-events
+  [context events]
+  (interceptor/assoc-effect
+   context :fx
+   (into (-> context (interceptor/get-effect :fx) (vec))
+         (map (partial vector :dispatch))
+         events)))
+
+(defn- complete-task
+  "Unregisters task and dispatches what waits for it, all within the run
+   that finished it. The event `::unregister` does the same for everyone
+   completing a task from outside a run."
+  [context id-or-task]
+  (let [after-events
+        (-> context (get-app-db) (get-task id-or-task) (::after-events))]
+
+    (cond-> (update-app-db context unregister id-or-task)
+      (seq after-events)
+      (dispatch-events after-events))))
 
 
 (defn task-id
@@ -699,7 +724,7 @@
               (cond-> context-with-task
                 ;; NOTE: nothing left to wait for, so the task is done
                 completed?
-                (update-app-db unregister task)))))]
+                (complete-task task)))))]
 
      (cond->> as-task
 
