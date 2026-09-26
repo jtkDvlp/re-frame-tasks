@@ -1,13 +1,13 @@
 name: test
 
-# NOTE: Wiederverwendbarer Workflow, damit der CI-Lauf auf dem PR und der
-# Lauf vor der Veröffentlichung nachweislich dasselbe prüfen.
+# NOTE: A reusable workflow, so that the CI run on a pull request and
+# the run before publishing demonstrably check the same thing.
 on:
   workflow_call:
     inputs:
       ref:
         description: >
-          Git-Ref, der geprüft wird. Leer bedeutet: der auslösende Commit.
+          The git ref to check. Empty means the triggering commit.
         type: string
         required: false
         default: ""

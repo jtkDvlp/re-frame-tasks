@@ -10,8 +10,9 @@ permissions:
   pull-requests: write
 
 jobs:
-  # Öffnet bzw. aktualisiert den Release-PR. Erst dessen Merge erzeugt Tag
-  # und GitHub-Release -- und damit die Ausgaben, die unten weiterlaufen.
+  # Opens or updates the release pull request. Only merging it creates
+  # the tag and the GitHub release -- and with them the outputs the jobs
+  # below run on.
   release-please:
     runs-on: ubuntu-latest
 
@@ -26,16 +27,16 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  # WATCHOUT: Test und Veröffentlichung gehören in denselben Workflow-Lauf
-  # wie release-please. Ein Release, das der GITHUB_TOKEN erzeugt, löst
-  # keine weiteren Workflows aus -- ein eigener `on: release`-Workflow
-  # liefe stillschweigend nie.
+  # WATCHOUT: Test and publish belong in the same workflow run as
+  # release-please. A release created by the GITHUB_TOKEN triggers no
+  # further workflows -- an `on: release` workflow of its own would
+  # silently never run.
   test:
     needs: release-please
     if: needs.release-please.outputs.release-created == 'true'
-    # NOTE: Derselbe Workflow wie in der CI, nur gegen den Tag. Auf dem PR
-    # lief er gegen den Stand vor dem Versions-Bump, hier gegen das
-    # Artefakt, das gleich hinausgeht.
+    # NOTE: The same workflow the CI runs, only against the tag. On the
+    # pull request it ran against the state before the version bump, here
+    # against the artifact about to go out.
     uses: ./.github/workflows/test.yml
     with:
       ref: ${{ needs.release-please.outputs.tag-name }}
@@ -50,9 +51,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # WATCHOUT: Der Tag, nicht der Zweig. Bis dieser Job läuft, kann
-          # auf master schon der nächste Commit liegen; veröffentlicht wird
-          # genau der Stand, der das Release ist.
+          # WATCHOUT: The tag, not the branch. By the time this job runs
+          # master may already carry the next commit; what goes out is
+          # exactly the state that is the release.
           ref: ${{ needs.release-please.outputs.tag-name }}
 
       - uses: actions/setup-java@v6
@@ -70,8 +71,8 @@ jobs:
           key: m2-${{ hashFiles('project.clj') }}
           restore-keys: m2-
 
-      # NOTE: Veröffentlichen ist nicht rücknehmbar -- Clojars nimmt
-      # dieselbe Version kein zweites Mal an.
+      # NOTE: Publishing cannot be taken back -- Clojars does not accept
+      # the same version a second time.
       - name: Deploy to Clojars
         env:
           CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}

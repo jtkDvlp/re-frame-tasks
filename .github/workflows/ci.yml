@@ -13,11 +13,11 @@ jobs:
   test:
     uses: ./.github/workflows/test.yml
 
-  # NOTE: Die Version ergibt sich aus den Commit-Nachrichten. Rutscht ein
-  # Commit ohne Conventional-Commits-Betreff auf den Hauptzweig, fehlt er
-  # im Changelog und die nächste Version fällt womöglich zu niedrig aus.
-  # PRs werden gemergt statt gesquasht, also wird jeder einzelne Commit
-  # geprüft, nicht nur der PR-Titel.
+  # NOTE: The version comes out of the commit messages. A commit whose
+  # subject is not a conventional commit slips onto the main branch
+  # missing from the changelog, and the next version may come out too
+  # low. Pull requests are merged rather than squashed, so every single
+  # commit is checked, not just the pull request title.
   commit-messages:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -36,20 +36,20 @@ jobs:
           pattern="^($types)(\([^)]+\))?!?: .+"
           failed=0
 
-          # WATCHOUT: --no-merges ist Absicht. Der Betreff eines
-          # Merge-Commits stammt von git und folgt der Konvention nie.
+          # WATCHOUT: --no-merges is deliberate. The subject of a merge
+          # commit comes from git and never follows the convention.
           while IFS= read -r subject; do
             [ -z "$subject" ] && continue
             if ! printf '%s' "$subject" | grep -Eq "$pattern"; then
-              echo "::error::Kein Conventional Commit: $subject"
+              echo "::error::Not a conventional commit: $subject"
               failed=1
             fi
           done < <(git log --no-merges --format=%s "$BASE_SHA..$HEAD_SHA")
 
           if [ "$failed" -ne 0 ]; then
-            echo "Format: <typ>[(<bereich>)][!]: <beschreibung>"
-            echo "Typen: $types"
+            echo "Format: <type>[(<scope>)][!]: <description>"
+            echo "Types: $types"
             exit 1
           fi
 
-          echo "Alle Commit-Nachrichten folgen Conventional Commits."
+          echo "Every commit message follows conventional commits."
