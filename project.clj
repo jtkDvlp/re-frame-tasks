@@ -48,7 +48,6 @@
    ;; transitively -- without it `re-frame.core` does not even compile.
    {:dependencies
     [[org.clojure/clojure "1.12.5"]
-     [com.taoensso/timbre "6.8.0"]
      [re-frame "1.4.7"]
      [reagent "2.0.1"]]}
 

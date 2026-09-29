@@ -1,9 +1,8 @@
 (ns jtk-dvlp.re-frame.tasks
   (:require
-   [taoensso.timbre :as log]
-
    [re-frame.core :as rf]
-   [re-frame.interceptor :as interceptor]))
+   [re-frame.interceptor :as interceptor]
+   [re-frame.loggers :refer [console]]))
 
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -15,7 +14,7 @@
 
 (defn- abort-original-event
   [context]
-  (log/trace "aborting original event" context)
+  (console :debug "re-frame-tasks: aborting original event" context)
   (update context :queue empty))
 
 
@@ -110,18 +109,18 @@
 
 (defn- create-timeout!
   [f ms]
-  (log/trace "creating timeout" {:f f, :ms ms})
+  (console :debug "re-frame-tasks: creating timeout" {:f f, :ms ms})
   {:ms ms, :f f, :t (js/setTimeout f ms)})
 
 (defn- cancel-timeout!
   [timeout]
-  (log/trace "canceling timeout" timeout)
+  (console :debug "re-frame-tasks: canceling timeout" timeout)
   (js/clearTimeout (:t timeout))
   nil)
 
 (defn- flush-timeout!
   [timeout]
-  (log/trace "flushing timeout" timeout)
+  (console :debug "re-frame-tasks: flushing timeout" timeout)
   (js/clearTimeout (:t timeout))
   ((:f timeout))
   nil)
@@ -131,7 +130,7 @@
 
 (defn dispatch-debounce
   [{:keys [ms] [event :as dispatch] :dispatch :as args}]
-  (log/trace "dispatching debounced" args)
+  (console :debug "re-frame-tasks: dispatching debounced" args)
   (letfn [(dispatch! []
             (swap! !debounce-timeouts dissoc event)
             (rf/dispatch (vary-meta dispatch assoc ::debounce {:flush? true})))]
@@ -148,7 +147,7 @@
 
 (defn flush-debounce
   [{[event] :dispatch :as args}]
-  (log/trace "flushing debounce" args)
+  (console :debug "re-frame-tasks: flushing debounce" args)
   (when-let [timeout (get @!debounce-timeouts event)]
     (flush-timeout! timeout)))
 
@@ -166,7 +165,8 @@
 
     :before
     (fn [context]
-      (log/trace "debouncing event" {:context context, :ms ms})
+      (console :debug "re-frame-tasks: debouncing event"
+               {:context context, :ms ms})
       (let [original-event
             (-get-original-event context)
 
@@ -271,7 +271,7 @@
   "Registers task within app-db. Also see event `::register`.
    Tasks can be used via subscriptions `::tasks` and `::running?`."
   [db {:keys [::id] :as task}]
-  (log/trace "registering task" task)
+  (console :debug "re-frame-tasks: registering task" task)
   (assoc-in db [::db :tasks id] task))
 
 (def ^{:rf/reg-event ::register} register-event
@@ -289,7 +289,7 @@
   "Unregisters task within app-db. Also see event `::unregister`.
    Tasks can be used via subscriptions `::tasks` and `::running?`."
   [db id-or-task]
-  (log/trace "unregistering task" id-or-task)
+  (console :debug "re-frame-tasks: unregistering task" id-or-task)
   (update-in db [::db :tasks] dissoc (->id id-or-task)))
 
 (def ^{:rf/reg-event ::unregister} unregister-event
@@ -348,8 +348,8 @@
   [context claim-key]
   (if (some? (task-id context))
     (do
-      (log/trace "claiming task"
-        {:task-id (task-id context), :claim claim-key})
+      (console :debug "re-frame-tasks: claiming task"
+               {:task-id (task-id context), :claim claim-key})
       ;; WATCHOUT: Noted in the context, not written to app-db. re-frame
       ;; builds the `:db` effect by handing the event handler the db from
       ;; the *coeffects*, so anything an earlier `:before` wrote there is
@@ -360,8 +360,10 @@
       ;; There is no task to claim when `as-task` did not run before this
       ;; interceptor. Silently building one under a nil id would hide the
       ;; wrong order until someone wonders why nothing is ever waited for.
-      (log/warn "no task to claim -- is `as-task` missing or ordered after"
-        {:claim claim-key})
+      (console :warn
+               "re-frame-tasks: no task to claim --"
+               "is `as-task` missing or ordered after this interceptor?"
+               {:claim claim-key})
       context)))
 
 (defn release
@@ -370,11 +372,12 @@
   [context claim-key]
   (if (some? (task-id context))
     (do
-      (log/trace "releasing claim"
-        {:task-id (task-id context), :claim claim-key})
+      (console :debug "re-frame-tasks: releasing claim"
+               {:task-id (task-id context), :claim claim-key})
       (update context ::released (fnil conj #{}) claim-key))
     (do
-      (log/warn "no task to release a claim of" {:claim claim-key})
+      (console :warn "re-frame-tasks: no task to release a claim of"
+               {:claim claim-key})
       context)))
 
 (defn- apply-noted-claims
@@ -467,7 +470,8 @@
 
 (defn- delay-event
   [context tasks event]
-  (log/trace "delaying event" {:context context, :tasks tasks, :event event})
+  (console :debug "re-frame-tasks: delaying event"
+           {:context context, :tasks tasks, :event event})
   (update-app-db context attach-after-event (first tasks) event))
 
 (defn wait-for
@@ -510,10 +514,10 @@
                   #(filter (comp (partial = tasks) :name) %))]
 
             (fn [context]
-              (log/trace "waiting for tasks"
-                {:context context
-                 :tasks tasks
-                 :debounce-ms debounce-ms})
+              (console :debug "re-frame-tasks: waiting for tasks"
+                       {:context context
+                        :tasks tasks
+                        :debounce-ms debounce-ms})
               (let [[original-event-name :as original-event]
                     (-get-original-event context)
 
@@ -601,7 +605,8 @@
   [effect]
   (if-let [completion-keys (get @!completion-keys-per-effect effect)]
     completion-keys
-    (log/warn "no completion keys set for effect" {:effect effect})))
+    (console :warn "re-frame-tasks: no completion keys set for effect"
+             {:effect effect})))
 
 (defn reg-completion-keys-for-effect
   "Registers effect completion keys to use with `as-task`."
@@ -686,12 +691,12 @@
 
           :after
           (fn [context]
-            (log/trace "creating event as task"
-              {:context context
-               :name-or-task name-or-task
-               :effects effects
-               :wait-for-tasks wait-for-tasks
-               :debounce-ms debounce-ms})
+            (console :debug "re-frame-tasks: creating event as task"
+                     {:context context
+                      :name-or-task name-or-task
+                      :effects effects
+                      :wait-for-tasks wait-for-tasks
+                      :debounce-ms debounce-ms})
             (let [id
                   (task-id context)
 

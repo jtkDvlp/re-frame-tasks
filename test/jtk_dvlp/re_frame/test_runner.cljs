@@ -21,10 +21,15 @@
   ;; as raw JS objects -- unreadable. `pr-str` makes a warning legible
   ;; enough to act on. Only for warnings raised during the run; whatever
   ;; re-frame logs while its namespaces load happens before this.
-  (let [log (fn [& args] (println (apply pr-str args)))]
+  ;;
+  ;; NOTE: `:debug` is dropped. The library traces every interceptor step
+  ;; there, and node prints `console.debug` like any other line -- the
+  ;; test output would drown in it.
+  (let [log (fn [& args] (println (apply pr-str args)))
+        ignore (fn [& _])]
     (rf/set-loggers!
-     {:log log, :warn log, :error log, :debug log, :group log
-      :groupEnd (fn [& _])})))
+     {:log log, :warn log, :error log, :debug ignore, :group log
+      :groupEnd ignore})))
 
 (defn -main
   [& _]

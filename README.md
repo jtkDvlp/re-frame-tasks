@@ -57,7 +57,12 @@ built and tested against:
 * `re-frame`
 * `reagent` -- re-frame declares it `provided` itself, so it does not
   arrive with re-frame
-* `com.taoensso/timbre`
+
+The library logs through re-frame's own loggers, so it needs nothing of
+its own for that. Its messages carry a `re-frame-tasks:` prefix and its
+tracing goes to the `:debug` logger, which a browser console hides until
+you switch it to verbose. `re-frame.core/set-loggers!` redirects or
+silences any of them.
 
 ### Usage
 
@@ -282,7 +287,7 @@ Two rules make this work:
 | The interceptor ids are namespaced now: `::as-task`, `::wait-for` | adjust anything that removes or replaces them by id |
 | A task carries its event under `::tasks/event` | it used to be `:event` |
 | `::unregister-and-dispatch-original` is an event only; the effect of the same name is gone, and the event vector carries the effect key before the original event | use the `*-original-event` helpers instead of reading the vector by index |
-| `re-frame`, `org.clojure/clojure` and the new `com.taoensso/timbre` are `provided` | add them to your own dependencies |
+| `re-frame`, `org.clojure/clojure` and `reagent` are `provided` | add them to your own dependencies |
 
 New in 3.0.0 and purely additive: the `debounce` interceptor, the
 `::dispatch-debounce` and `::flush-debounce` effects, the trailing
