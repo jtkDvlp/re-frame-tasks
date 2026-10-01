@@ -1,28 +1,93 @@
+[![CI](https://github.com/jtkDvlp/re-frame-tasks/actions/workflows/ci.yml/badge.svg)](https://github.com/jtkDvlp/re-frame-tasks/actions/workflows/ci.yml)
 [![Clojars Project](https://img.shields.io/clojars/v/jtk-dvlp/re-frame-tasks.svg)](https://clojars.org/jtk-dvlp/re-frame-tasks)
 [![cljdoc badge](https://cljdoc.org/badge/jtk-dvlp/re-frame-tasks)](https://cljdoc.org/d/jtk-dvlp/re-frame-tasks/CURRENT)
-[![License: EPL-2.0](https://img.shields.io/badge/License-EPL_2.0-red.svg)](https://github.com/jtkDvlp/re-frame-tasks/blob/master/LICENSE)
+[![License](https://img.shields.io/badge/License-EPL%202.0-red.svg)](https://opensource.org/licenses/EPL-2.0)
+[![paypal](https://www.paypalobjects.com/en_US/i/btn/btn_donate_SM.gif)](https://www.paypal.com/donate?hosted_button_id=2PDXQMHX56T6U)
 
 # Tasks interceptor / helpers for re-frame
 
-Interceptors and helpers to register and unregister (background-)tasks
-(FXs) in your app-state / app-db to list tasks and / or synchronize event
-execution and single ui parts or the whole ui.
+Interceptors and helpers that keep what is running in your app-db: named
+tasks for long runners, a subscription to show them, and a way to hold
+events back until they are done. ClojureScript, on top of
+[re-frame](https://github.com/day8/re-frame).
+
+See the [API docs](https://cljdoc.org/d/jtk-dvlp/re-frame-tasks/CURRENT)
+for the full reference.
+
+## The problem it solves
+
+Without it, "something is running" is a flag set and cleared by hand, in
+every handler that starts or ends the work:
+
+```clojure
+(rf/reg-event-fx :load-data-x
+  (fn [{:keys [db]} _]
+    {:db (assoc db :loading-data-x? true)
+     :http-xhrio {,,, :on-success [:load-data-x-success]
+                      :on-failure [:load-data-x-failure]}}))
+
+(rf/reg-event-db :load-data-x-success
+  (fn [db [_ data]]
+    (-> db (assoc :data-x data) (dissoc :loading-data-x?))))
+```
+
+Every further request brings its own flag, every error path has to
+remember to clear it, and an event that must wait for the request reads
+those flags itself.
+
+Here an interceptor keeps the book and the handlers only do their work:
+
+```clojure
+(tasks/reg-completion-keys-for-effect
+  :http-xhrio :on-success :on-failure)
+
+(rf/reg-event-fx :load-data-x
+  [(tasks/as-task :loading-data-x [:http-xhrio])]
+  (fn [_ _]
+    {:http-xhrio {,,, :on-success [:load-data-x-success]
+                      :on-failure [:load-data-x-failure]}}))
+
+(rf/reg-event-db :load-data-x-success
+  (fn [db [_ data]] (assoc db :data-x data)))
+
+;; and wherever it matters
+@(rf/subscribe [::tasks/running? :loading-data-x])
+```
+
+The task stands from the moment the event runs until the effect reports
+back -- on success and on failure alike.
 
 ## Features
 
-* register / unregister tasks / fxs via one line or global interceptor
-  injection
-  * support multiple and any fx on-completion keys via registration
-* subscriptions for tasks list and running task boolean
-  * running task boolean can be quick filtered by task name
-* events to register / unregister tasks yourself
-* helpers to register / unregister tasks into db yourself
-* synchronize / queue event execution during running tasks via one line
-  or global interceptor injection
-* debounce event dispatches, with an effect to flush a pending one
+  * **A task per event, from one interceptor.** `as-task` marks an event
+    and the effects it fires. The task is registered while they run and
+    unregistered when the last one completes. Which keys of an effect
+    report completion is registered per effect, so this works for any
+    effect and not only for `:http-xhrio`.
 
-Also works for async coeffect injections, see
-https://github.com/jtkDvlp/re-frame-async-coeffects.
+  * **What runs, as data.** `::tasks` hands out the running tasks -- id,
+    name, the event that opened each one and whatever the `::task` effect
+    added. `::running?` answers the boolean, for everything or for one
+    name.
+
+  * **Events that wait for events.** `wait-for` queues an event while the
+    tasks it names are running and lets it through once they are done.
+    Injected globally it holds the whole app back, injected per event just
+    that one; a single event opts out through its meta.
+
+  * **Debouncing.** `debounce` collapses repeated dispatches of an event
+    within a window, `::dispatch-debounce` does the same from a handler,
+    and `::flush-debounce` runs a pending one right away.
+
+  * **A run can be suspended.** `claim` keeps a task open past the end of
+    its run, `resume` picks it up in a later one -- what an asynchronous
+    coeffect needs to fetch its data without the task falling apart in
+    between. See
+    [re-frame-async-coeffects](https://github.com/jtkDvlp/re-frame-async-coeffects).
+
+  * **Nothing the registry hides.** Registering, unregistering and
+    attaching an after-event exist as plain db functions and as events, so
+    everything the interceptors do you can do yourself.
 
 ### What the namespace registers
 
@@ -43,7 +108,7 @@ that namespace.
 
 ## Getting started
 
-### Get it / add dependency
+### Add the dependency
 
 Add the following dependency to your `project.clj`:<br>
 [![Clojars Project](https://img.shields.io/clojars/v/jtk-dvlp/re-frame-tasks.svg)](https://clojars.org/jtk-dvlp/re-frame-tasks)
@@ -65,8 +130,6 @@ you switch it to verbose. `re-frame.core/set-loggers!` redirects or
 silences any of them.
 
 ### Usage
-
-See api docs [![cljdoc badge](https://cljdoc.org/badge/jtk-dvlp/re-frame-tasks)](https://cljdoc.org/d/jtk-dvlp/re-frame-tasks/CURRENT)
 
 For a working demo see `dev/jtk_dvlp/your_project.cljs`.
 
@@ -297,7 +360,7 @@ New in 3.0.0 and purely additive: the `debounce` interceptor, the
 
 ## Development
 
-```
+```bash
 lein with-profile +test,-dev run -m cljs.main \
   --target node \
   --output-dir target/test \
@@ -306,6 +369,64 @@ lein with-profile +test,-dev run -m cljs.main \
   --compile jtk-dvlp.re-frame.test-runner
 node target/test/main.js
 ```
+
+`+test,-dev` is the profile set that counts: `:test` brings the
+ClojureScript compiler the library itself does not declare, and dropping
+`:dev` keeps figwheel and reagent's React shim out, so the library is
+built against what a consumer actually gets.
+
+That run and an `:advanced` compile of the library happen on every push
+and pull request, see
+[`.github/workflows/test.yml`](.github/workflows/test.yml). Both reject a
+compiler warning, because an unknown var is only a warning to
+`cljs.main` and would otherwise pass.
+
+What has changed is in [`CHANGELOG.md`](CHANGELOG.md); what is merged but
+not released yet stands in the open release pull request.
+
+## Contributing
+
+### Commit messages
+
+Commit subjects follow [Conventional
+Commits](https://www.conventionalcommits.org/en/v1.0.0/):
+
+```
+<type>[(<scope>)][!]: <description>
+```
+
+The `!` marks a breaking change and belongs to the type, not to `feat` --
+`fix!:` is just as valid and means a bug fix that breaks.
+
+Pull requests are merged, not squashed, so every commit of a branch ends
+up on `master` -- the convention applies to each of them, not just to the
+pull request title. A CI job checks this on every pull request.
+
+The type decides the next version:
+
+| Subject | Release |
+|---|---|
+| `fix: ...` | patch -- `3.0.0` → `3.0.1` |
+| `feat: ...` | minor -- `3.0.0` → `3.1.0` |
+| any type with a `!`, or a `BREAKING CHANGE:` footer | major -- `3.0.0` → `4.0.0` |
+| `perf:`, `revert:`, `refactor:`, `docs:` | patch -- they reach a user, as behaviour or as the documentation that ships with the artifact |
+| `build:`, `chore:`, `ci:`, `style:`, `test:` | none -- they act inside the repository |
+
+### Releasing
+
+Releasing is automatic; nobody edits a version number by hand.
+
+1. A merge to `master` lets
+   [release-please](https://github.com/googleapis/release-please) open or
+   update a release pull request. It carries the next version in
+   `project.clj` and the changelog entries derived from the commits since
+   the last release.
+2. Merging that pull request creates the git tag and the GitHub release.
+3. The same workflow run then tests the tagged state and pushes the
+   artifact to Clojars.
+
+So the release pull request is the point where a release is decided --
+until it is merged, nothing leaves the house.
 
 ## Appendix
 
