@@ -22,6 +22,19 @@
   :source-paths
   ["src"]
 
+  :target-path
+  "target"
+
+  ;; WATCHOUT: `^{:protect false}` is what makes `lein jar` and with it
+  ;; `lein deploy` run at all. `target` is a resource path of the `:dev`
+  ;; profile, and `clean` -- which `jar` runs first -- refuses to delete a
+  ;; path the project itself lists, unless the protection is lifted here.
+  ;; Nothing in the test workflow runs `clean`, so dropping this breaks
+  ;; only the one step that publishes.
+  :clean-targets
+  ^{:protect false}
+  [:target-path]
+
   :deploy-repositories
   [["clojars"
     {:url
