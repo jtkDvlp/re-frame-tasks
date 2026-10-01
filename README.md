@@ -16,6 +16,8 @@ for the full reference.
 
 ## The problem it solves
 
+### Knowing what runs
+
 Without it, "something is running" is a flag set and cleared by hand, in
 every handler that starts or ends the work:
 
@@ -31,9 +33,8 @@ every handler that starts or ends the work:
     (-> db (assoc :data-x data) (dissoc :loading-data-x?))))
 ```
 
-Every further request brings its own flag, every error path has to
-remember to clear it, and an event that must wait for the request reads
-those flags itself.
+Every further request brings its own flag, and every error path has to
+remember to clear it.
 
 Here an interceptor keeps the book and the handlers only do their work:
 
@@ -56,6 +57,46 @@ Here an interceptor keeps the book and the handlers only do their work:
 
 The task stands from the moment the event runs until the effect reports
 back -- on success and on failure alike.
+
+### Keeping the order of things
+
+The other half is sequence, and that is where an app's logic lives. Work
+that must not start before other work has finished is everywhere: a
+calculation over data that is still being fetched, a save while a reload
+is in flight, a dialog that may only open once an import is through.
+
+Without a registry of what runs, that order is wired by hand into
+whoever finishes last:
+
+```clojure
+(rf/reg-event-fx :load-data-x-success
+  (fn [{:keys [db]} [_ data]]
+    {:db (assoc db :data-x data)
+     ;; and now the loader has to know who comes after it
+     :dispatch [:load-data-based-on-x-n-y]}))
+```
+
+A second source makes it worse: both handlers have to count what else is
+still open before either may dispatch, and the order of the app ends up
+spread over its loaders -- where nobody looks for it.
+
+Here it is declared at the event that needs the data:
+
+```clojure
+(rf/reg-event-fx :load-data-based-on-x-n-y
+  [(tasks/wait-for #{:loading-data-x :loading-data-y})]
+  (fn [_ _]
+    ;; use data-x and data-y
+    ,,,))
+
+;; dispatch it whenever -- it runs once both tasks are done, and right
+;; away when neither of them is running
+(rf/dispatch [:load-data-based-on-x-n-y])
+```
+
+The loaders know nothing about it, the order holds no matter who started
+what, and the same interceptor registered globally holds the whole app
+back while a task runs.
 
 ## Features
 
