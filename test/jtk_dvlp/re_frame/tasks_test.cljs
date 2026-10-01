@@ -213,6 +213,56 @@
             (is (true? (::followed-up? @rf-db/app-db))))
           (done))))))
 
+(deftest wait-for-takes-a-function-to-pick-the-blocking-tasks
+  ;; The function form is the one that changed shape for 3.0: it is handed
+  ;; the coeffects before the running tasks. Nothing covered it, and
+  ;; renaming those two parameters is what made `wait-for` stop waiting
+  ;; altogether -- the inner `tasks` shadowed the one naming the tasks to
+  ;; wait for, so the other four tests fell over instead of this one.
+  (async done
+    (let [effect-args
+          (atom nil)
+
+          calls
+          (atom [])]
+
+      (tasks/reg-completion-keys-for-effect ::probe-fx :on-success)
+      (rf/reg-fx ::probe-fx (partial reset! effect-args))
+
+      (rf/reg-event-fx ::picked-by-fn
+        [(tasks/as-task :picked [::probe-fx])]
+        (fn [_ _] {::probe-fx {:on-success [::irrelevant]}}))
+
+      (rf/reg-event-db ::irrelevant (fn [db _] db))
+
+      (rf/reg-event-db ::waits-by-fn
+        [(tasks/wait-for
+          (fn [coeffects running-tasks]
+            (swap! calls conj [coeffects running-tasks])
+            (filter (comp #{:picked} :name) running-tasks)))]
+        (fn [db _] (assoc db ::ran? true)))
+
+      (rf/dispatch-sync [::picked-by-fn])
+      (rf/dispatch-sync [::waits-by-fn])
+
+      (testing "it waits as long as the function names a task"
+        (is (nil? (::ran? @rf-db/app-db))))
+
+      (testing "and the function gets the coeffects, then the running tasks"
+        (let [[coeffects running-tasks]
+              (last @calls)]
+
+          (is (= [::waits-by-fn] (:event coeffects)))
+          (is (= [:picked] (map :name running-tasks)))))
+
+      (rf/dispatch (:on-success @effect-args))
+
+      (when-queue-drained
+        (fn []
+          (is (true? (::ran? @rf-db/app-db))
+              "and runs once the function finds nothing blocking")
+          (done))))))
+
 (deftest as-task-works-as-a-global-interceptor
   (async done
     (tasks/reg-completion-keys-for-effect ::probe-fx :on-success)
