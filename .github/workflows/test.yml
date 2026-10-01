@@ -89,3 +89,12 @@ jobs:
           fi
 
           node target/test/main.js
+
+      # WATCHOUT: This builds the artifact, it does not only compile the
+      # sources -- and it runs with the profiles `lein deploy` uses, `:dev`
+      # among them. `deploy` calls `jar`, `jar` calls `clean`, and that
+      # path used to be reached first by the publish job, where a failure
+      # costs a version: the tag is out by then and cannot be published a
+      # second time. It goes last because `clean` empties `target`.
+      - name: Build the artifact
+        run: lein jar
