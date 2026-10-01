@@ -281,46 +281,41 @@
    Tasks can be used via subscriptions [[tasks-sub]] and [[running?-sub]].
 
    WATCHOUT: This drops the task including its `::after-events`; calling
-   the events is up to the caller. Both callers here do it -- the event
-   [[unregister-event]] via `:dispatch-n`, [[as-task]] via [[complete-task]].
-   A third one that forgets leaves whatever waited on the task waiting for
-   good, and nothing says a word."
+   the events is up to the caller. Everything here goes through
+   `complete-task`, which does both. Whoever calls this one directly has to
+   dispatch the events, or whatever waited on the task waits for good, and
+   nothing says a word."
   [db id-or-task]
   (console :debug "re-frame-tasks: unregistering task" id-or-task)
   (update-in db [::db :tasks] dissoc (->id id-or-task)))
+
+(defn- complete-task
+  "Drops the task and dispatches what waited for it, as effects of the run
+   at hand. Takes and returns an effects map, `:db` and `:fx` as an event
+   handler hands them over. The single place a task is completed -- see the
+   WATCHOUT on [[unregister]]."
+  [{:keys [db] :as effects} id-or-task]
+  (let [after-events
+        (-> db (get-task id-or-task) (::after-events))]
+
+    (cond-> (assoc effects :db (unregister db id-or-task))
+      (seq after-events)
+      (update :fx (fnil into []) (map (partial vector :dispatch))
+              after-events))))
+
+(defn- complete-task-within-run
+  "`complete-task` for an interceptor, whose effects sit in the context and
+   whose db may still be only a coeffect."
+  [context id-or-task]
+  (-> context
+      (interceptor/assoc-effect :db (get-app-db context))
+      (update :effects complete-task id-or-task)))
 
 (def ^{:rf/reg-event ::unregister} unregister-event
   "re-frame event to unregister `task`. See [[unregister]]."
   (rf/reg-event-fx ::unregister
     (fn [{:keys [db]} [_ id-or-task]]
-      (let [{:keys [::id ::after-events]}
-            (get-task db id-or-task)]
-
-        {:db
-         (unregister db id)
-
-         :dispatch-n
-         (vec after-events)}))))
-
-(defn- dispatch-events
-  [context events]
-  (interceptor/assoc-effect
-   context :fx
-   (into (-> context (interceptor/get-effect :fx) (vec))
-         (map (partial vector :dispatch))
-         events)))
-
-(defn- complete-task
-  "Unregisters task and dispatches what waits for it, all within the run
-   that finished it. The [[unregister-event]] does the same for everyone
-   completing a task from outside a run."
-  [context id-or-task]
-  (let [after-events
-        (-> context (get-app-db) (get-task id-or-task) (::after-events))]
-
-    (cond-> (update-app-db context unregister id-or-task)
-      (seq after-events)
-      (dispatch-events after-events))))
+      (complete-task {:db db} id-or-task))))
 
 
 (defn task-id
@@ -407,7 +402,7 @@
 
         (cond-> {:db db}
           (unclaimed? db id-or-task)
-          (assoc :dispatch [::unregister id-or-task]))))))
+          (complete-task id-or-task))))))
 
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -590,17 +585,20 @@
             task-completed?
             (unclaimed? db task)]
 
-        {:db
-         db
+        ;; NOTE: Completing here rather than dispatching `::unregister`
+        ;; keeps the task out of `::running?` the moment its completion is
+        ;; decided, and the original event keeps its place in front of
+        ;; whatever waited.
+        (cond-> {:db
+                 db
 
-         :fx
-         (cond-> []
-           (some? original-event)
-           (conj [:dispatch original-event])
+                 :fx
+                 (cond-> []
+                   (some? original-event)
+                   (conj [:dispatch original-event]))}
 
-           ;; TODO: Kann das unregister auch direkt laufen?
-           task-completed?
-           (conj [:dispatch [::unregister task]]))}))))
+          task-completed?
+          (complete-task task))))))
 
 (def ^:private !completion-keys-per-effect
   (atom {}))
@@ -745,7 +743,7 @@
               (cond-> context-with-task
                 ;; NOTE: nothing left to wait for, so the task is done
                 completed?
-                (complete-task task)))))]
+                (complete-task-within-run task)))))]
 
      (cond->> as-task
 
