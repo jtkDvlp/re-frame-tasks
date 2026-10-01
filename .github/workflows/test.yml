@@ -66,13 +66,26 @@ jobs:
       # tested nothing: `cljs.main` does not pass on the exit code of the
       # node process it spawns, and the node target only calls `-main`
       # when `*main-cli-fn*` is set (it is, in the runner).
+      #
+      # WATCHOUT: The warning check belongs here as much as above, for the
+      # same reason: a test calling a var that no longer exists -- after a
+      # rename, say -- is a warning and compiles on, and whether anything
+      # notices then depends on which line node reaches first.
       - name: Run tests
         run: |
+          set -o pipefail
+          log="$(mktemp)"
+
           lein with-profile +test,-dev run -m cljs.main \
             --target node \
             --output-dir target/test \
             --output-to target/test/main.js \
             --compile-opts '{:main jtk-dvlp.re-frame.test-runner}' \
-            --compile jtk-dvlp.re-frame.test-runner
+            --compile jtk-dvlp.re-frame.test-runner 2>&1 | tee "$log"
+
+          if grep -E '^WARNING' "$log"; then
+            echo "::error::The compiler reports warnings, see above."
+            exit 1
+          fi
 
           node target/test/main.js
