@@ -1,20 +1,23 @@
-;; WATCHOUT: Die Version pflegt release-please, nicht die Hand. Die
-;; Anmerkung `x-release-please-version` ist das, woran es die Zeile
-;; findet -- ohne sie wird nur das Changelog fortgeschrieben und das
-;; Paket trägt weiter die alte Zahl.
+;; WATCHOUT: release-please owns this number, not a hand. The annotation
+;; is what it finds the line by -- without it only the changelog moves on
+;; and the package keeps the old version. What stands here is the last
+;; release; the next one is decided by the commits since.
 (defproject jtk-dvlp/re-frame-tasks "2.3.0" ; x-release-please-version
   :description
-  "A re-frame interceptor and helpers to register / unregister (background-)tasks"
+  "re-frame interceptors to introduce tasks, synchronize event flow and debounce event dispatches"
 
   :url
   "https://github.com/jtkDvlp/re-frame-tasks"
 
   :license
   {:name
-   "MIT"
+   "EPL-2.0 OR GPL-2.0-or-later WITH Classpath-exception-2.0"
 
    :url
-   "https://github.com/jtkDvlp/budgetbook/blob/master/LICENSE"}
+   "https://www.eclipse.org/legal/epl-2.0/"}
+
+  :plugins
+  [[lein-ancient "0.7.0"]]
 
   :source-paths
   ["src"]
@@ -24,46 +27,69 @@
     {:url
      "https://repo.clojars.org/"
 
-     ;; WATCHOUT: Die Zugangsdaten stehen als Repository-Secrets und
-     ;; kommen über Umgebungsvariablen in den Build -- nie als Datei im
-     ;; Repo, auch nicht als ignorierte.
+     ;; WATCHOUT: The credentials are repository secrets reaching the
+     ;; build through environment variables -- never a file in the repo,
+     ;; not even an ignored one.
      :username
      :env/clojars_username
 
      :password
      :env/clojars_password
 
-     ;; NOTE: Im Lauf liegt kein Signaturschlüssel, und Clojars verlangt
-     ;; keine Signatur.
+     ;; NOTE: No signing key in the run, and Clojars asks for no
+     ;; signature.
      :sign-releases
      false}]]
 
-  :target-path
-  "target"
-
-  :clean-targets
-  ^{:protect false}
-  [:target-path]
-
-  :dependencies
-  [[org.clojure/clojure "1.10.0"]
-   [org.clojure/clojurescript "1.10.773"]
-   [jtk-dvlp/core.async-helpers "3.2.0"]
-   [re-frame "1.1.2"]]
-
   :profiles
-  {:dev
+  {:provided
+   ;; WATCHOUT: `reagent` belongs here although this library never calls
+   ;; it. re-frame declares it `provided` itself, so it does not arrive
+   ;; transitively -- without it `re-frame.core` does not even compile.
    {:dependencies
-    [[com.bhauman/figwheel-main "0.2.7"]
-     [org.clojure/core.async "1.3.610"]
+    [[org.clojure/clojure "1.12.5"]
+     [re-frame "1.4.7"]
+     [reagent "2.0.1"]]}
+
+   :dev
+   {:dependencies
+    [[com.bhauman/figwheel-main "0.2.20"]
+
+     [reagent "2.0.1"]
+     [cljsjs/react "18.3.1-1"]
+     [cljsjs/react-dom "18.3.1-1"]
+
+     [org.clojure/core.async "1.9.865"]
+     [jtk-dvlp/core.async-helpers "3.5.0"]
+
      [net.clojars.jtkdvlp/re-frame-async-coeffects "2.0.0"]]
 
     :source-paths
-    ["dev"]}
+    ["dev"]
+
+    :resource-paths
+    ["target"]}
+
+   ;; NOTE: The library itself declares no ClojureScript dependency -- a
+   ;; consumer brings their own. The test run needs a compiler.
+   ;; WATCHOUT: Not the 1.10.773 that figwheel-main drags in. re-frame
+   ;; 1.4.7 calls `update-vals` in `re-frame.flow.alpha`, which arrived
+   ;; in 1.11 -- against the older compiler every build warns about an
+   ;; undeclared var.
+   :test
+   {:dependencies
+    ;; NOTE: React is a build-time need of this compile, not a contract
+    ;; with consumers -- they bring their own, through cljsjs or npm.
+    [[org.clojure/clojurescript "1.12.145"]
+     [cljsjs/react "18.3.1-1"]
+     [cljsjs/react-dom "18.3.1-1"]]
+
+    :source-paths
+    ["test"]}
 
    :repl
    {:dependencies
-    [[cider/piggieback "0.5.0"]]
+    [[cider/piggieback "0.7.0"]]
 
     :repl-options
     {:nrepl-middleware
