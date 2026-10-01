@@ -277,7 +277,7 @@
         (fn []
           (is (zero? @runs) "still waiting out its window")
 
-          (tasks/flush-debounce {:dispatch [::flushable]})
+          (tasks/flush-debounce! {:dispatch [::flushable]})
 
           (when-queue-drained
             (fn []

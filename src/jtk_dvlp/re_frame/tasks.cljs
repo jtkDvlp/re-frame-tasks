@@ -507,12 +507,14 @@
                     tasks)
 
                   (coll? tasks)
-                  (fn [_coeffects tasks]
-                    (filter (comp (partial contains? (set tasks)) :name) tasks))
+                  (let [names (set tasks)]
+                    (fn [_coeffects running-tasks]
+                      (filter (comp (partial contains? names) :name)
+                              running-tasks)))
 
                   :else
-                  (fn [_coeffetcs tasks]
-                    (filter (comp (partial = tasks) :name) tasks)))]
+                  (fn [_coeffects running-tasks]
+                    (filter (comp (partial = tasks) :name) running-tasks)))]
 
             (fn [{:keys [coeffects] :as context}]
               (console :debug "re-frame-tasks: waiting for tasks"
