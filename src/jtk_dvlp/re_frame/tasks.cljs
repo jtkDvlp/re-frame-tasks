@@ -19,24 +19,19 @@
 
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Helpers: Coeffects
+;; Helpers: Interceptors
 
-(defn- compose-coeffects
-  [inner-cofx outer-cofx]
+(defn- compose-interceptors
+  [inner outer]
   (let [{outer-before-fn :before
          outer-after-fn :after}
-        outer-cofx
+        outer
 
         {inner-before-fn :before
          inner-after-fn :after}
-        inner-cofx]
+        inner]
 
-    ;; WATCHOUT: Every test of a `cond->` that holds is applied. A clause
-    ;; for "inner only" therefore has to exclude the case the clause above
-    ;; it already handled -- otherwise the composition is built and then
-    ;; overwritten by the inner function alone, and the outer one is gone
-    ;; without a word.
-    (cond-> outer-cofx
+    (cond-> outer
       (and (some? inner-before-fn) (some? outer-before-fn))
       (update :before #(comp %2 %1) inner-before-fn)
 
@@ -128,7 +123,7 @@
 (defonce ^:private !debounce-timeouts
   (atom {}))
 
-(defn dispatch-debounce
+(defn dispatch-debounce!
   [{:keys [ms] [event :as dispatch] :dispatch :as args}]
   (console :debug "re-frame-tasks: dispatching debounced" args)
   (letfn [(dispatch! []
@@ -139,21 +134,23 @@
       (cancel-timeout! timeout))
 
     (let [timeout (create-timeout! dispatch! ms)]
-      (swap! !debounce-timeouts assoc event timeout))))
+      (swap! !debounce-timeouts assoc event timeout)))
+  nil)
 
 (def ^{:rf/reg-fx ::dispatch-debounce} dispatch-debounce-fx
   "re-frame effect to debounce `dispatch` within `ms`."
-  (rf/reg-fx ::dispatch-debounce dispatch-debounce))
+  (rf/reg-fx ::dispatch-debounce dispatch-debounce!))
 
-(defn flush-debounce
+(defn flush-debounce!
   [{[event] :dispatch :as args}]
   (console :debug "re-frame-tasks: flushing debounce" args)
   (when-let [timeout (get @!debounce-timeouts event)]
-    (flush-timeout! timeout)))
+    (flush-timeout! timeout))
+  nil)
 
 (def ^{:rf/reg-fx ::flush-debounce} flush-debounce-fx
   "re-frame effect to flush debounced `dispatch`."
-  (rf/reg-fx ::flush-debounce flush-debounce))
+  (rf/reg-fx ::flush-debounce flush-debounce!))
 
 (defn debounce
   "Creates an interceptor to debounce event calls within `ms`.
@@ -179,7 +176,7 @@
         (if flush?
           context
           (do
-            (dispatch-debounce {:ms ms, :dispatch original-event})
+            (dispatch-debounce! {:ms ms, :dispatch original-event})
             (abort-original-event context))))))))
 
 
@@ -207,14 +204,12 @@
 (defn get-task-by-name
   "Gets task in app-db via `name`. Can return nil."
   [db name]
-  ;; WATCHOUT: `some` yields the predicate's result, so a plain
-  ;; `#(= (:name %) name)` returns `true` rather than the task.
   (->> (get-tasks db)
        (filter #(= (:name %) name))
        (first)))
 
 (defn get-tasks
-  "Gets all tasks in app-db. Can return nil. Also see subscription `::tasks`."
+  "Gets all tasks in app-db. Can return nil. Also see subscription [[tasks-sub]]."
   [db]
   (vals (get-in db [::db :tasks])))
 
@@ -225,7 +220,7 @@
     :-> (comp vals :tasks)))
 
 (defn running?
-  "Checks for running task in app-db also filtered via `name`. Also see subscription `::running?`."
+  "Checks for running task in app-db also filtered via `name`. Also see subscription `[[running?-sub]]`."
   ([db]
    (some? (get-tasks db)))
 
@@ -233,7 +228,7 @@
    (some? (get-task-by-name db name))))
 
 (def ^{:rf/reg-sub ::running?} running?-sub
-  "re-frame subscription for running tasks.´ optional filtered by given `name`."
+  "re-frame subscription for running tasks optional filtered by given `name`."
   (rf/reg-sub ::running?
     :<- [::tasks]
     (fn [tasks [_ name]]
@@ -247,7 +242,8 @@
 (defn attach-after-event
   "Attaches event to call after task completion."
   [db id-or-task event]
-  (update-in db [::db :tasks (->id id-or-task) ::after-events] (fnil conj []) event))
+  (update-in db [::db :tasks (->id id-or-task) ::after-events]
+             (fnil conj []) event))
 
 (defn- claim-in-db
   [db id-or-task claim-key]
@@ -268,32 +264,33 @@
   (-> db (claims id-or-task) (empty?)))
 
 (defn register
-  "Registers task within app-db. Also see event `::register`.
-   Tasks can be used via subscriptions `::tasks` and `::running?`."
+  "Registers task within app-db. Also see event [[register-event]].
+   Tasks can be used via subscriptions [[tasks-sub]] and [[running?-sub]]."
   [db {:keys [::id] :as task}]
   (console :debug "re-frame-tasks: registering task" task)
   (assoc-in db [::db :tasks id] task))
 
 (def ^{:rf/reg-event ::register} register-event
-  "re-frame event to register `task`. See `register`."
+  "re-frame event to register `task`. See [[register]]."
   (rf/reg-event-db ::register
     (fn [db [_ task]]
       (register db task))))
 
-;; WATCHOUT: This drops the task including its `::after-events`; calling
-;; the events is up to the caller. Both callers here do it -- the event
-;; below via `:dispatch-n`, `as-task` via `complete-task`. A third one
-;; that forgets leaves whatever waited on the task waiting for good, and
-;; nothing says a word.
 (defn unregister
-  "Unregisters task within app-db. Also see event `::unregister`.
-   Tasks can be used via subscriptions `::tasks` and `::running?`."
+  "Unregisters task within app-db. Also see event [[unregister-event]].
+   Tasks can be used via subscriptions [[tasks-sub]] and [[running?-sub]].
+
+   WATCHOUT: This drops the task including its `::after-events`; calling
+   the events is up to the caller. Both callers here do it -- the event
+   [[unregister-event]] via `:dispatch-n`, [[as-task]] via [[complete-task]].
+   A third one that forgets leaves whatever waited on the task waiting for
+   good, and nothing says a word."
   [db id-or-task]
   (console :debug "re-frame-tasks: unregistering task" id-or-task)
   (update-in db [::db :tasks] dissoc (->id id-or-task)))
 
 (def ^{:rf/reg-event ::unregister} unregister-event
-  "re-frame event to unregister `task`. See `unregister`."
+  "re-frame event to unregister `task`. See [[unregister]]."
   (rf/reg-event-fx ::unregister
     (fn [{:keys [db]} [_ id-or-task]]
       (let [{:keys [::id ::after-events]}
@@ -315,7 +312,7 @@
 
 (defn- complete-task
   "Unregisters task and dispatches what waits for it, all within the run
-   that finished it. The event `::unregister` does the same for everyone
+   that finished it. The [[unregister-event]] does the same for everyone
    completing a task from outside a run."
   [context id-or-task]
   (let [after-events
@@ -328,7 +325,7 @@
 
 (defn task-id
   "Id of the task this event run belongs to, or nil when the run carries
-   none. Hand it to whatever will continue the run later, see `resume`."
+   none. Hand it to whatever will continue the run later, see [[resume]]."
   [context]
   (::id context))
 
@@ -339,12 +336,12 @@
 
    `claim-key` identifies the claim and has to be unique among the claims
    of one task; an id the caller already holds per suspension does nicely.
-   Give the same key back to `release`.
+   Give the same key back to [[release]].
 
-   Whoever claims, releases -- in every outcome. A claim that is never
-   given back leaves the task registered for good, and anything waiting
+   WATCHOUT: Whoever claims, releases -- in every outcome. A claim that is
+   never given back leaves the task registered for good, and anything waiting
    for it waits for good. Where there is no run left to release in, an
-   error path typically, there is the event `::release`."
+   error path typically, there is the [[release-event]]."
   [context claim-key]
   (if (some? (task-id context))
     (do
@@ -367,8 +364,8 @@
       context)))
 
 (defn release
-  "Gives back a claim taken with `claim`, from within an event run. Use the
-   event `::release` where there is no run to hand it back in."
+  "Gives back a claim taken with [[claim]], from within an event run. Use the
+   [[release-event]] where there is no run to hand it back in."
   [context claim-key]
   (if (some? (task-id context))
     (do
@@ -391,7 +388,7 @@
 
 (defn resume
   "Marks `event` as the continuation of the task `task-id`, so dispatching
-   it picks that task up again instead of opening a second one. `wait-for`
+   it picks that task up again instead of opening a second one. [[wait-for]]
    lets such an event past the very task it continues."
   [event task-id]
   (vary-meta event assoc ::resume task-id))
@@ -402,7 +399,7 @@
 
 (def ^{:rf/reg-event ::release} release-event
   "re-frame event to give back a claim outside of an event run, see
-   `claim`. Completes the task when it was the last one."
+   [[claim]]. Completes the task when it was the last one."
   (rf/reg-event-fx ::release
     (fn [{:keys [db]} [_ id-or-task claim-key]]
       (let [db
@@ -480,13 +477,14 @@
    - `:any` for any task
    - a task name
    - a collection of task names
-   - a 1-argument function given all running tasks to filter for blocking tasks
+   - a 2-argument function given coeffects and all running tasks to filter for blocking tasks
 
    Can be injected multiple times, consider injection order.
    Can be used as global interceptor, consider there is no direct reversal allow / pass
-   functionality. To not wait for tasks but call event add event vector meta `::wait-for {:ignore-tasks #{task-name ,,,}}.`
+   functionality. To not wait for tasks but call event add event vector meta
+   `::wait-for {:ignore-tasks #{task-name ,,,}}`.
 
-   Sugar `debounce-ms` to also inject `debounce` interceptor."
+   Sugar `debounce-ms` to also inject [[debounce]] interceptor."
   ([]
    (wait-for :any))
 
@@ -505,15 +503,18 @@
                   tasks
 
                   (= tasks :any)
-                  identity
+                  (fn [_coeffects tasks]
+                    tasks)
 
                   (coll? tasks)
-                  #(filter (comp (partial contains? (set tasks)) :name) %)
+                  (fn [_coeffects tasks]
+                    (filter (comp (partial contains? (set tasks)) :name) tasks))
 
                   :else
-                  #(filter (comp (partial = tasks) :name) %))]
+                  (fn [_coeffetcs tasks]
+                    (filter (comp (partial = tasks) :name) tasks)))]
 
-            (fn [context]
+            (fn [{:keys [coeffects] :as context}]
               (console :debug "re-frame-tasks: waiting for tasks"
                        {:context context
                         :tasks tasks
@@ -536,7 +537,7 @@
                     (->> context
                          (get-app-db)
                          (get-tasks)
-                         (filter-blocking-tasks)
+                         (filter-blocking-tasks coeffects)
                          (remove (comp tasks-to-ignore :name)))]
 
                 (cond
@@ -559,7 +560,7 @@
 
      (cond->> wait-for
        (some? debounce-ms)
-       (compose-coeffects (debounce debounce-ms))))))
+       (compose-interceptors (debounce debounce-ms))))))
 
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -595,6 +596,7 @@
            (some? original-event)
            (conj [:dispatch original-event])
 
+           ;; TODO: Kann das unregister auch direkt laufen?
            task-completed?
            (conj [:dispatch [::unregister task]]))}))))
 
@@ -647,19 +649,22 @@
    effects))
 
 (defn as-task
-  "Creates an interceptor to mark an event and its effects as task. Also see `wait-for` to wait for task.
+  "Creates an interceptor to mark an event and its effects as task. Also see [[wait-for]] to wait for task.
    Give it a name of the task or map with at least a `:name` key or nil / nothing to use the event name.
-   Tasks can be used via subscriptions `::tasks` and `::running?`.
+   Tasks can be used via subscriptions [[tasks-sub]] and [[running?-sub]].
 
-   Given vector `effects` will be used to identify effects to monitor for the task. Can be the keyword of the effect or an vector of effects path (to handle special :fx effect). Completion keys must be registered by `reg-completion-keys-for-effect` for the effects.
+   Given vector `effects` will be used to identify effects to monitor for the task. Can be the keyword of
+   the effect or an vector of effects path (to handle special `:fx` effect). Completion keys must be
+   registered by [[reg-completion-keys-for-effect]] for the effects.
 
-   Given sugar `wait-for-tasks` to also inject `wait-for` interceptor, see documentation `wait-for`.
-   Given sugar `debounce-ms` to also inject `debounce` interceptor, see documentation `debounce`.
+   Given sugar `wait-for-tasks` to also inject [[wait-for]] interceptor, see documentation [[wait-for]] for
+   details. Given sugar `debounce-ms` to also inject [[debounce]] interceptor, see documentation [[debounce]]
+   for details.
 
    Within your event handler use `::task` as effect to modify your task data.
 
-   See `*-original-event` functions to handle as-tasks effect completion handlers.
-   See `attach-after-event` to attach events to call after task completion."
+   See [[*-original-event]] functions to handle as-tasks effect completion handlers.
+   See [[attach-after-event]] to attach events to call after task completion."
   ([]
    (as-task nil))
 
@@ -687,7 +692,7 @@
                   (-get-original-event context)]
 
               (assoc context ::id
-                     (or (resumed-task-id event) (random-uuid)))))
+                (or (resumed-task-id event) (random-uuid)))))
 
           :after
           (fn [context]
@@ -700,16 +705,25 @@
             (let [id
                   (task-id context)
 
+                  existing-task
+                  (-> context
+                      (get-app-db)
+                      (get-task id))
+
+                  new-task
+                  (-> name-or-task
+                      (or (task-name-by-original-event context))
+                      (normalize-task)
+                      (merge (interceptor/get-effect context ::task))
+                      ;; TODO: Wofür wird das ::event benötigt?
+                      (assoc ::event (-get-original-event context))
+                      (assoc ::id id))
+
                   task
-                  (->> (-> name-or-task
-                           (or (task-name-by-original-event context))
-                           (normalize-task)
-                           (merge (interceptor/get-effect context ::task))
-                           (assoc ::event (-get-original-event context))
-                           (assoc ::id id))
+                  (->> new-task
                        ;; NOTE: What is already under this id comes first:
                        ;; the state of the run this one continues.
-                       (merge (-> context (get-app-db) (get-task id)))
+                       (merge existing-task)
                        (apply-noted-claims context))
 
                   context-with-task
@@ -734,7 +748,7 @@
      (cond->> as-task
 
        (some? wait-for-tasks)
-       (compose-coeffects (wait-for wait-for-tasks))
+       (compose-interceptors (wait-for wait-for-tasks))
 
        (some? debounce-ms)
-       (compose-coeffects (debounce debounce-ms))))))
+       (compose-interceptors (debounce debounce-ms))))))
