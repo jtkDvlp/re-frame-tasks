@@ -220,7 +220,8 @@
     :-> (comp vals :tasks)))
 
 (defn running?
-  "Checks for running task in app-db also filtered via `name`. Also see subscription `[[running?-sub]]`."
+  "Checks for running task in app-db also filtered via `name`. Also see
+   subscription [[running?-sub]]."
   ([db]
    (some? (get-tasks db)))
 
@@ -663,7 +664,11 @@
 
    Within your event handler use `::task` as effect to modify your task data.
 
-   See [[*-original-event]] functions to handle as-tasks effect completion handlers.
+   A task carries `::id`, its `:name`, the event that opened it under
+   `::event` and whatever the `::task` effect added. All of it is yours to
+   read via [[get-tasks]] or [[tasks-sub]].
+
+   See the `*-original-event` functions to handle as-tasks effect completion handlers.
    See [[attach-after-event]] to attach events to call after task completion."
   ([]
    (as-task nil))
@@ -715,7 +720,13 @@
                       (or (task-name-by-original-event context))
                       (normalize-task)
                       (merge (interceptor/get-effect context ::task))
-                      ;; TODO: Wofür wird das ::event benötigt?
+                      ;; NOTE: `::event` is for whoever reads the task, not
+                      ;; for this library -- nothing here looks at it. It is
+                      ;; what a view has to tell two tasks of one name apart,
+                      ;; or to offer a retry: the event vector including its
+                      ;; arguments. Dropping it would also take the event
+                      ;; payload out of app-db, which is worth knowing where
+                      ;; that payload is large.
                       (assoc ::event (-get-original-event context))
                       (assoc ::id id))
 

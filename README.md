@@ -288,6 +288,7 @@ Two rules make this work:
 | A task carries its event under `::tasks/event` | it used to be `:event` |
 | `::unregister-and-dispatch-original` is an event only; the effect of the same name is gone, and the event vector carries the effect key before the original event | use the `*-original-event` helpers instead of reading the vector by index |
 | `re-frame`, `org.clojure/clojure` and `reagent` are `provided` | add them to your own dependencies |
+| The function form of `wait-for`'s `tasks` takes two arguments | it is `(fn [coeffects running-tasks] ,,,)` now, where it was `(fn [running-tasks] ,,,)` |
 
 New in 3.0.0 and purely additive: the `debounce` interceptor, the
 `::dispatch-debounce` and `::flush-debounce` effects, the trailing
