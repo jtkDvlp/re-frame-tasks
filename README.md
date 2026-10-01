@@ -393,6 +393,7 @@ Two rules make this work:
 | `::unregister-and-dispatch-original` is an event only; the effect of the same name is gone, and the event vector carries the effect key before the original event | use the `*-original-event` helpers instead of reading the vector by index |
 | `re-frame`, `org.clojure/clojure` and `reagent` are `provided` | add them to your own dependencies |
 | The function form of `wait-for`'s `tasks` takes two arguments | it is `(fn [coeffects running-tasks] ,,,)` now, where it was `(fn [running-tasks] ,,,)` |
+| The licence is EPL-2.0 | it was MIT -- see [`LICENSE`](LICENSE) |
 
 New in 3.0.0 and purely additive: the `debounce` interceptor, the
 `::dispatch-debounce` and `::flush-debounce` effects, the trailing
