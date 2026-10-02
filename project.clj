@@ -2,7 +2,7 @@
 ;; is what it finds the line by -- without it only the changelog moves on
 ;; and the package keeps the old version. What stands here is the last
 ;; release; the next one is decided by the commits since.
-(defproject jtk-dvlp/re-frame-tasks "3.0.0" ; x-release-please-version
+(defproject jtk-dvlp/re-frame-tasks "3.0.1" ; x-release-please-version
   :description
   "re-frame interceptors to introduce tasks, synchronize event flow and debounce event dispatches"
 

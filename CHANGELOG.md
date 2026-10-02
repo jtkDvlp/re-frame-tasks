@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.1](https://github.com/jtkDvlp/re-frame-tasks/compare/3.0.0...3.0.1) (2026-10-02)
+
+
+### Bug Fixes
+
+* run composed `:after` functions inner before outer ([b654435](https://github.com/jtkDvlp/re-frame-tasks/commit/b654435ea2023e03b49594f9aea39cbff9ad1df2))
+
 ## [3.0.0](https://github.com/jtkDvlp/re-frame-tasks/compare/2.3.0...3.0.0) (2026-10-01)
 
 
