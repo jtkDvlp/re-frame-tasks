@@ -31,15 +31,18 @@
          inner-after-fn :after}
         inner]
 
+    ;; NOTE: `comp` runs right to left. Outer before inner on the way in,
+    ;; inner before outer on the way out -- the order re-frame gives the
+    ;; two when they stand side by side in a vector.
     (cond-> outer
       (and (some? inner-before-fn) (some? outer-before-fn))
-      (update :before #(comp %2 %1) inner-before-fn)
+      (assoc :before (comp inner-before-fn outer-before-fn))
 
       (and (some? inner-before-fn) (nil? outer-before-fn))
       (assoc :before inner-before-fn)
 
       (and (some? inner-after-fn) (some? outer-after-fn))
-      (update :after #(comp %2 %1) inner-after-fn)
+      (assoc :after (comp outer-after-fn inner-after-fn))
 
       (and (some? inner-after-fn) (nil? outer-after-fn))
       (assoc :after inner-after-fn))))
