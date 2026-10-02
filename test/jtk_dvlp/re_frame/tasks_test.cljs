@@ -434,6 +434,43 @@
 
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Composition
+
+(defn- recording-interceptor
+  [!trace label]
+  (rf/->interceptor
+   :id label
+   :before (fn [context] (swap! !trace conj [label :before]) context)
+   :after (fn [context] (swap! !trace conj [label :after]) context)))
+
+(deftest composing-runs-like-the-vector-it-stands-for
+  ;; The sugar on `as-task` and `wait-for` folds interceptors into one, and
+  ;; that one has to run the way re-frame runs them side by side: `:before`
+  ;; outside in, `:after` inside out. The `:after` order was reversed, and
+  ;; nothing showed it -- `as-task` is the only interceptor here with an
+  ;; `:after`, so two of them never met. Found reading the code.
+  (let [!trace
+        (atom [])
+
+        trace-of
+        (fn [event interceptors]
+          (reset! !trace [])
+          (rf/reg-event-db event interceptors (fn [db _] db))
+          (rf/dispatch-sync [event])
+          @!trace)
+
+        outer
+        (recording-interceptor !trace :outer)
+
+        inner
+        (recording-interceptor !trace :inner)]
+
+    (is (= (trace-of ::side-by-side [outer inner])
+           (trace-of ::composed
+                     [(#'tasks/compose-interceptors inner outer)])))))
+
+
+;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Claims
 
 (def ^:private suspender-claim
